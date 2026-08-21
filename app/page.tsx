@@ -121,6 +121,47 @@ export default async function Page() {
         </div>
 
         <Distribution marks={marks} />
+
+        {/* Portfolio-level risk. The gap between the two effective-bet figures
+            is the cost of theme concentration, and the board meeting concedes
+            the whole book drew down together. */}
+        <div className="risk">
+          <span>
+            <span className="stat-k">Holdings</span>
+            <span className="stat-v num">{data.risk.holdings}</span>
+          </span>
+          <span>
+            <span className="stat-k">Effective bets</span>
+            <span className="stat-v num">
+              {data.risk.effectiveBetsCorrelation != null
+                ? data.risk.effectiveBetsCorrelation.toFixed(1)
+                : data.risk.effectiveBetsWeight != null
+                  ? `${data.risk.effectiveBetsWeight.toFixed(1)}*`
+                  : "--"}
+            </span>
+          </span>
+          <span>
+            <span className="stat-k">Mean correlation</span>
+            <span className="stat-v num">
+              {data.risk.meanCorrelation != null ? data.risk.meanCorrelation.toFixed(2) : "--"}
+            </span>
+          </span>
+          <span>
+            <span className="stat-k">Top 3 sectors</span>
+            <span className="stat-v num">
+              {data.risk.sectors.topThreeShare != null
+                ? `${(data.risk.sectors.topThreeShare * 100).toFixed(0)}%`
+                : "--"}
+            </span>
+          </span>
+        </div>
+
+        {data.risk.effectiveBetsCorrelation == null && data.risk.effectiveBetsWeight != null && (
+          <p className="risk-note">
+            * Weight concentration only. Correlation needs {data.risk.correlationWindow} sessions
+            of stored history, which have not been backfilled yet.
+          </p>
+        )}
       </header>
 
       <TickerLookup />

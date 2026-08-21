@@ -30,6 +30,7 @@ import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
 import type { TrendBar } from "./trend-template";
+import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -106,6 +107,8 @@ export interface ScreenPayload {
   readonly demoted: number;
   /** How many cleared every rule but fell outside the top N. */
   readonly capped: number;
+  /** Concentration and correlation across the selected book. */
+  readonly risk: PortfolioRisk;
   readonly strongBuyLimit: number;
   /** Theme names held out by the crowding veto, ranked, never silently dropped. */
   readonly vetoed: readonly VetoedRow[];
@@ -403,6 +406,11 @@ async function computeScreen(): Promise<ScreenPayload> {
     themed: priced,
     portfolio,
     demoted: demotedCount(overlaid),
+    // Risk is measured over the SELECTED BOOK -- buildPortfolio's 7/7/5 shape
+    // -- not over every buy-side candidate. "How correlated is what I own"
+    // is a different question from "how correlated are the names I could own",
+    // and measuring 66 candidates would understate concentration badly.
+    risk: portfolioRisk(portfolio, history),
     capped: cappedCount(limited),
     strongBuyLimit: STRONG_BUY_LIMIT,
     vetoed: collectVetoed(ranked, new Set(names.keys())),

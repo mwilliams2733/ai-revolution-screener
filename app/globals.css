@@ -701,3 +701,16 @@ tr.vetoed .rail-fill { background: var(--veto); }
 .criteria li { font-size: 0.72rem; }
 .criteria .pass { color: var(--cool-strong); }
 .criteria .fail { color: var(--muted); }
+
+/* Portfolio risk header. */
+.risk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.risk-note { margin: 7px 0 0; font-size: 0.66rem; color: var(--muted); line-height: 1.5; }
