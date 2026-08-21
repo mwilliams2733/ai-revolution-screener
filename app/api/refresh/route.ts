@@ -22,6 +22,7 @@ import {
   upsertTierHistory,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
+import { classifySession } from "@/lib/session-ledger";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -82,7 +83,7 @@ async function handle(req: Request) {
   let sessionsAdded = 0;
   let barsAdded = 0;
   const stored: string[] = [];
-  const holidays: string[] = [];
+  const retried: string[] = [];
 
   try {
     // Real session dates, newest first. Ten days back is ample for a nightly
@@ -93,11 +94,13 @@ async function handle(req: Request) {
 
     for (const date of todo) {
       const bars = await groupedDaily(date);
-      if (bars.length === 0) {
-        // 200 OK with no rows means the market was shut, not that the call
-        // failed. Record it so the next run stops retrying the same date.
-        await recordSession(date, 0, false);
-        holidays.push(date);
+
+      // `todo` is derived from tradingCalendar, so every date here is a REAL
+      // session. An empty response is therefore an upstream hiccup, not a
+      // holiday, and must not be written to the ledger as one — doing so would
+      // bury the session permanently. See H1 in lib/session-ledger.ts.
+      if (classifySession(bars.length, true) === "retry") {
+        retried.push(date);
         continue;
       }
       const n = await insertBars(date, bars);
@@ -124,7 +127,7 @@ async function handle(req: Request) {
       ok: true,
       asOf: screen.asOf,
       sessionsStored: stored,
-      holidaysRecorded: holidays,
+      emptyRetried: retried,
       barsAdded,
       tiersSnapshotted: snapshotted,
       remaining: Math.max(0, (await missingSessions(calendar.slice(0, 10))).length),

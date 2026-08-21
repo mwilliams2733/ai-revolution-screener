@@ -15,15 +15,22 @@
  * work forms a contiguous prefix.
  */
 
-import { groupedDaily, candidateSessions, fullUniverse } from "../lib/polygon";
+import { groupedDaily, tradingCalendar, fullUniverse } from "../lib/polygon";
+import { classifySession, sessionsToFetch } from "../lib/session-ledger";
 import {
   upsertTickers,
   insertBars,
   recordSession,
-  missingSessions,
+  storedTradingSessions,
   startRun,
   finishRun,
 } from "../lib/db";
+
+function isoDaysAgo(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -45,14 +52,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function main(): Promise<void> {
   const started = Date.now();
 
-  // Walk back enough weekdays to clear TARGET_SESSIONS trading days even after
-  // ~10 market holidays a year are removed.
-  const slack = Math.ceil(TARGET_SESSIONS * 0.06) + 10;
-  const candidates = candidateSessions(new Date(), TARGET_SESSIONS + slack);
+  // Work list comes from the REAL trading calendar, not from weekday arithmetic.
+  // A weekday list includes today before the market has opened, and fetching it
+  // returns an empty response that used to be recorded as a holiday. See H1 in
+  // lib/session-ledger.ts.
+  const lookbackDays = Math.ceil(TARGET_SESSIONS * 1.5) + 30;
+  const calendar = await tradingCalendar(isoDaysAgo(lookbackDays), isoDaysAgo(0));
 
   if (DRY) {
-    console.log(`[dry] ${candidates.length} candidate weekdays`);
-    console.log(`[dry] newest ${candidates[0]}  oldest ${candidates[candidates.length - 1]}`);
+    console.log(`[dry] ${calendar.length} real trading sessions available`);
+    console.log(`[dry] newest ${calendar[0]}  oldest ${calendar[calendar.length - 1]}`);
+    console.log(`[dry] would target the newest ${Math.min(TARGET_SESSIONS, calendar.length)}`);
     return;
   }
 
@@ -69,8 +79,11 @@ async function main(): Promise<void> {
       console.log(`  stored ${n} tickers (${dead} delisted, kept for backtest integrity)`);
     }
 
-    const todo = await missingSessions(candidates);
-    console.log(`${candidates.length} candidates, ${todo.length} not yet fetched`);
+    const stored = await storedTradingSessions();
+    const todo = sessionsToFetch(calendar, stored, TARGET_SESSIONS);
+    console.log(
+      `${calendar.length} sessions in calendar, ${stored.length} stored, ${todo.length} to fetch`,
+    );
 
     for (const date of todo) {
       if (sessionsAdded >= LIMIT) {
@@ -84,11 +97,11 @@ async function main(): Promise<void> {
 
       const bars = await groupedDaily(date);
 
-      // 200 OK with zero results means weekend or market holiday, not failure.
-      // Record it so a later run does not retry the same non-session forever.
-      if (bars.length === 0) {
-        await recordSession(date, 0, false);
-        console.log(`  ${date}  holiday/non-session`);
+      // Every date here came from the real trading calendar, so an empty
+      // response is a transient upstream problem, NOT a holiday. Leave it out
+      // of the ledger so the next run picks it up again.
+      if (classifySession(bars.length, true) === "retry") {
+        console.warn(`  ${date}  empty response for a known session - will retry`);
         await sleep(THROTTLE_MS);
         continue;
       }
