@@ -1,0 +1,502 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Calibrated-instrument direction.
+   Hue encodes position against the 200d MA proxy (cool = above, warm = below).
+   Intensity encodes tier. Colour here is data, not decoration.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --paper:      #E9EDF1;
+  --surface:    #FFFFFF;
+  --surface-2:  #F4F7F9;
+  --ink:        #101B25;
+  --muted:      #5B6B7A;
+  --line:       #D6DEE6;
+  --rail-bg:    #DCE3EA;
+
+  --cool-strong: #0B6E78;
+  --cool-mid:    #3E97A0;
+  --warm:        #A65A1F;
+  --veto:        #94A0AC;
+
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:     #0A1219;
+    --surface:   #111C25;
+    --surface-2: #16232E;
+    --ink:       #E4EDF4;
+    --muted:     #8698A7;
+    --line:      #223140;
+    --rail-bg:   #1E2E3B;
+
+    --cool-strong: #58D6C8;
+    --cool-mid:    #2F9EA8;
+    --warm:        #D68A45;
+    --veto:        #66727F;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:     #0A1219;
+  --surface:   #111C25;
+  --surface-2: #16232E;
+  --ink:       #E4EDF4;
+  --muted:     #8698A7;
+  --line:      #223140;
+  --rail-bg:   #1E2E3B;
+
+  --cool-strong: #58D6C8;
+  --cool-mid:    #2F9EA8;
+  --warm:        #D68A45;
+  --veto:        #66727F;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+}
+
+.num {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 72px; }
+
+/* ---- masthead ---- */
+
+.masthead {
+  padding: 8px 0 18px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.title {
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(1.45rem, 5vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  margin: 0;
+  line-height: 1.05;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 6px 0 0;
+  line-height: 1.5;
+  max-width: 56ch;
+}
+
+.stats { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; }
+.stat-k {
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  display: block;
+}
+.stat-v { font-size: 1rem; font-weight: 600; }
+
+/* ---- distribution strip: the rank rail at universe scale ---- */
+
+.dist {
+  position: relative;
+  height: 32px;
+  margin-top: 16px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.dist-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.dist-mark { position: absolute; bottom: 5px; width: 2px; height: 13px; border-radius: 1px; opacity: 0.8; }
+.dist-label {
+  position: absolute;
+  top: 4px;
+  font-size: 0.55rem;
+  color: var(--muted);
+  transform: translateX(-50%);
+  letter-spacing: 0.08em;
+}
+
+/* ---- controls ---- */
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+
+.chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 120ms, color 120ms;
+}
+.chip:hover { color: var(--ink); border-color: var(--cool-mid); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chip:focus-visible,
+.th-btn:focus-visible { outline: 2px solid var(--cool-mid); outline-offset: 2px; }
+
+select.chip { color: var(--ink); }
+
+.ctl-label {
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ---- table ---- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+table { width: 100%; border-collapse: collapse; }
+thead { display: none; }
+th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.th-btn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.th-btn:hover { color: var(--ink); }
+.th-btn[data-active="true"] { color: var(--ink); }
+
+tbody tr {
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 13px 14px;
+}
+tbody tr:first-child { border-top: 0; }
+
+td { padding: 0; vertical-align: middle; }
+
+.c-name { grid-column: 1; min-width: 0; }
+.c-tier { grid-column: 2; grid-row: 1 / span 2; align-self: start; text-align: right; }
+.c-rail { grid-column: 1 / -1; margin-top: 10px; }
+.c-figs { grid-column: 1 / -1; margin-top: 9px; }
+
+.ticker {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 0.98rem;
+  letter-spacing: -0.015em;
+}
+/* No overflow clipping here: the tooltip is an absolutely-positioned child of
+   this element, and `overflow: hidden` would cut it away entirely. Truncation
+   lives on .tt-trigger instead, which needs no clipping ancestor. */
+.coname {
+  color: var(--muted);
+  font-size: 0.72rem;
+  max-width: 100%;
+}
+.sector {
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* ---- tier badge ---- */
+
+.badge { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.badge-name {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge-w { font-size: 0.62rem; color: var(--muted); }
+
+.t-strong { background: color-mix(in srgb, var(--cool-strong) 16%, transparent); color: var(--cool-strong); }
+.t-buy    { background: color-mix(in srgb, var(--cool-mid) 18%, transparent);    color: var(--cool-mid); }
+.t-hold   { background: color-mix(in srgb, var(--muted) 16%, transparent);       color: var(--muted); }
+.t-below  { background: color-mix(in srgb, var(--warm) 16%, transparent);        color: var(--warm); }
+
+/* ---- the rank rail: signature element ---- */
+
+.rail {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--rail-bg);
+  overflow: hidden;
+}
+.rail-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; }
+.rail-tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: var(--surface);
+  opacity: 0.85;
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail-fill { animation: grow 520ms cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: left; }
+}
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.rail-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.55rem;
+  color: var(--muted);
+  margin-top: 5px;
+  letter-spacing: 0.06em;
+}
+
+/* ---- figures ---- */
+
+.figs { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.fig-k {
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.fig-v { font-size: 0.8rem; font-weight: 500; }
+.pos { color: var(--cool-strong); }
+.neg { color: var(--warm); }
+
+/* ---- vetoed rows ---- */
+
+tbody tr.vetoed {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 7px,
+    color-mix(in srgb, var(--veto) 8%, transparent) 7px,
+    color-mix(in srgb, var(--veto) 8%, transparent) 14px
+  );
+}
+tr.vetoed .ticker,
+tr.vetoed .fig-v { color: var(--veto); }
+tr.vetoed .rail-fill { background: var(--veto); }
+
+.veto-note {
+  grid-column: 1 / -1;
+  margin-top: 9px;
+  font-size: 0.64rem;
+  color: var(--veto);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.veto-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--veto); flex: none; }
+
+/* ---- section heading ---- */
+
+.sec-head { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 10px; flex-wrap: wrap; }
+.sec-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.sec-note { color: var(--muted); font-size: 0.7rem; }
+
+.empty { padding: 34px 16px; text-align: center; color: var(--muted); font-size: 0.82rem; }
+
+.err {
+  border: 1px solid var(--warm);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: var(--surface);
+}
+.err h2 {
+  font-family: var(--font-display), sans-serif;
+  margin: 0 0 8px;
+  font-size: 1rem;
+  color: var(--warm);
+}
+.err p { margin: 0 0 6px; color: var(--muted); font-size: 0.8rem; line-height: 1.6; }
+.err code { font-family: var(--font-mono), monospace; font-size: 0.75rem; }
+
+.foot { margin-top: 22px; color: var(--muted); font-size: 0.66rem; line-height: 1.7; max-width: 70ch; }
+
+/* ---------------------------------------------------------------------------
+   Desktop: the stacked cards become a real table.
+   --------------------------------------------------------------------------- */
+
+@media (min-width: 880px) {
+  .wrap { padding: 28px 24px 80px; }
+
+  thead { display: table-header-group; }
+  thead th { padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+
+  tbody tr { display: table-row; padding: 0; }
+  tbody td { padding: 11px 12px; }
+
+  .c-name, .c-tier, .c-rail, .c-figs { margin: 0; }
+  .c-tier { text-align: left; }
+  .badge { flex-direction: row; align-items: center; gap: 8px; }
+  .c-rail { width: 190px; }
+  .rail-legend { display: none; }
+  .num-cell { text-align: right; font-size: 0.82rem; white-space: nowrap; }
+  .veto-note { margin: 0; font-size: 0.62rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Company tooltip, fundamental gate notes, ticker lookup
+   --------------------------------------------------------------------------- */
+
+.tt-host { position: relative; display: inline-block; max-width: 100%; }
+
+.tt-trigger {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: help;
+  text-align: left;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 55%, transparent);
+  text-underline-offset: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tt-trigger:hover { color: var(--ink); }
+.tt-trigger:focus-visible { outline: 2px solid var(--cool-mid); outline-offset: 2px; }
+
+/* Fixed, not absolute. The table lives inside .panel { overflow: hidden },
+   which clips absolutely-positioned descendants; a fixed element escapes that.
+   Coordinates are measured from the trigger in company-tooltip.tsx. */
+.tt {
+  position: fixed;
+  z-index: 40;
+  width: min(330px, 84vw);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px -12px color-mix(in srgb, var(--ink) 45%, transparent);
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: normal;
+  /* Long descriptions must not run off the viewport; scroll inside instead. */
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.tt-head { font-family: var(--font-display), sans-serif; font-size: 0.78rem; }
+.tt-body { color: var(--muted); }
+.tt-muted { color: var(--muted); font-size: 0.68rem; }
+.tt-stats { display: flex; gap: 14px; font-size: 0.68rem; color: var(--muted); }
+
+.tt-earn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+.tt-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tt-surprises { display: flex; gap: 10px; font-size: 0.72rem; }
+
+/* ---- gate notes ---- */
+
+.gate-note {
+  grid-column: 1 / -1;
+  margin-top: 7px;
+  font-size: 0.64rem;
+  color: var(--warm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gate-note.unver { color: var(--muted); }
+.gate-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+
+/* ---- ticker lookup ---- */
+
+.lookup { margin: 22px 0 4px; }
+
+.lookup-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.lookup-input {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  width: 130px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.lookup-input:focus-visible { outline: 2px solid var(--cool-mid); outline-offset: 2px; }
+.lookup-go:disabled { opacity: 0.45; cursor: default; }
+
+.lookup-note { margin: 10px 0 0; font-size: 0.74rem; color: var(--muted); line-height: 1.6; }
+
+.lookup-card {
+  margin-top: 12px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.lookup-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+
+@media (min-width: 880px) {
+  .lookup-card .figs { display: flex; }
+}
+
+/* A capped name failed nothing — it was simply out-ranked. Neutral, not warm. */
+.gate-note.cap { color: var(--cool-mid); }

@@ -1,0 +1,10 @@
+# Secrets never travel with the source. Production values are set as project
+# environment variables instead.
+.env
+.env.local
+.env.*.local
+
+node_modules
+.next
+scratchpad
+*.tsbuildinfo
