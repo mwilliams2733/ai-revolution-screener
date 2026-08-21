@@ -6,6 +6,7 @@ import CompanyTooltip from "./company-tooltip";
 import type { ScreenRow, Tier } from "@/lib/types";
 import { DEFAULT_PARAMS } from "@/lib/params";
 import { MISSING, money, num, pct, railWidth, signClass } from "@/lib/format";
+import { usePersistedState } from "./use-persisted-state";
 
 /** Tier cutoffs drawn on every rail. These are the real decision boundaries. */
 const BUY_CUT = DEFAULT_PARAMS.buyRs;
@@ -21,6 +22,10 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: "dollarVolume", label: "Liquidity" },
   { key: "ticker", label: "Ticker" },
 ];
+
+type TierFilter = "all" | "Strong Buy" | "Buy" | "Hold";
+
+const TIER_FILTERS: TierFilter[] = ["all", "Strong Buy", "Buy", "Hold"];
 
 type Row = PricedRow | VetoedRow | ScreenRow;
 
@@ -120,12 +125,93 @@ function Figures({ row }: { row: Row }) {
   );
 }
 
-function DataRow({ row }: { row: Row }) {
+/**
+ * Detail revealed by the row expander. (Finding U8)
+ *
+ * The collapsed row is already at the practical limit for a phone, so anything
+ * new goes here rather than becoming another column. This is where the Phase 3
+ * metric families will land.
+ */
+function RowDetail({ row }: { row: Row }) {
+  const priced = isPriced(row) ? row : null;
+  return (
+    <tr className="detail-row">
+      <td className="c-detail" colSpan={5}>
+        <dl className="detail">
+          <div>
+            <dt>Sector</dt>
+            <dd>{sectorLabel(row.sector)}</dd>
+          </div>
+          <div>
+            <dt>Open / close</dt>
+            <dd className="num">
+              {priced?.open != null ? `${priced.open.toFixed(2)} / ${row.price.toFixed(2)}` : MISSING}
+            </dd>
+          </div>
+          <div>
+            <dt>200d average</dt>
+            <dd className="num">
+              {num(row.maProxy, 2)}{" "}
+              <span className="detail-note">
+                {priced?.maSource === "true" ? "rolling mean" : "5-point proxy"}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt>1-month</dt>
+            <dd className={`num ${signClass(row.r1m)}`}>{pct(row.r1m, 0)}</dd>
+          </div>
+          <div>
+            <dt>6-month</dt>
+            <dd className={`num ${signClass(row.r6m)}`}>{pct(row.r6m, 0)}</dd>
+          </div>
+          <div>
+            <dt>Dollar volume</dt>
+            <dd className="num">{money(row.dollarVolume)}</dd>
+          </div>
+          {priced && (
+            <div className="detail-wide">
+              <dt>Fundamentals</dt>
+              <dd>{priced.gateReason}</dd>
+            </div>
+          )}
+          {isVetoed(row) && (
+            <div className="detail-wide">
+              <dt>Held out</dt>
+              <dd>{row.excluded}</dd>
+            </div>
+          )}
+        </dl>
+      </td>
+    </tr>
+  );
+}
+
+function DataRow({
+  row,
+  expanded,
+  onToggle,
+}: {
+  row: Row;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const vetoed = isVetoed(row);
   return (
     <tr className={vetoed ? "vetoed" : undefined}>
       <td className="c-name">
-        <div className="ticker">{row.ticker}</div>
+        <div className="ticker">
+          {row.ticker}
+          <button
+            type="button"
+            className="row-toggle"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Hide" : "Show"} detail for ${row.ticker}`}
+            onClick={onToggle}
+          >
+            {expanded ? "−" : "+"}
+          </button>
+        </div>
         <div className="coname">
           <CompanyTooltip ticker={row.ticker} name={row.name || sectorLabel(row.sector)} />
         </div>
@@ -215,11 +301,33 @@ function Header({
   );
 }
 
+const isSortKey = (v: unknown): v is SortKey =>
+  typeof v === "string" && SORTS.some((s) => s.key === v);
+const isDir = (v: unknown): v is 1 | -1 => v === 1 || v === -1;
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isTierFilter = (v: unknown): v is TierFilter =>
+  typeof v === "string" && (TIER_FILTERS as string[]).includes(v);
+
 export default function ScreenTable({ data }: { data: ScreenPayload }) {
-  const [sort, setSort] = useState<SortKey>("rsPct");
-  const [dir, setDir] = useState<1 | -1>(-1);
-  const [sector, setSector] = useState<string>("all");
+  // Persisted so a reload does not discard the view. (U4)
+  const [sort, setSort] = usePersistedState<SortKey>("screen.sort", "rsPct", isSortKey);
+  const [dir, setDir] = usePersistedState<1 | -1>("screen.dir", -1, isDir);
+  const [sector, setSector] = usePersistedState<string>("screen.sector", "all", isStr);
+  const [tierFilter, setTierFilter] = usePersistedState<TierFilter>(
+    "screen.tier",
+    "all",
+    isTierFilter,
+  );
   const [showVetoed, setShowVetoed] = useState(true);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
+  const toggleRow = (ticker: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticker)) next.delete(ticker);
+      else next.add(ticker);
+      return next;
+    });
 
   const sectors = useMemo(
     () => [...new Set(data.themed.map((r) => r.sector))].sort(),
@@ -227,7 +335,7 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
   );
 
   function onSort(k: SortKey) {
-    if (k === sort) setDir((d) => (d === 1 ? -1 : 1));
+    if (k === sort) setDir(dir === 1 ? -1 : 1);
     else {
       setSort(k);
       setDir(k === "ticker" ? 1 : -1);
@@ -235,7 +343,9 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
   }
 
   const rows = useMemo(() => {
-    const base = data.themed.filter((r) => sector === "all" || r.sector === sector);
+    const base = data.themed
+      .filter((r) => sector === "all" || r.sector === sector)
+      .filter((r) => tierFilter === "all" || r.tier === tierFilter);
     const cmp = (a: Row, b: Row) => {
       if (sort === "ticker") return a.ticker.localeCompare(b.ticker) * dir;
       const av = (a[sort] as number | null) ?? -Infinity;
@@ -243,7 +353,7 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
       return (av - bv) * dir;
     };
     return [...base].sort(cmp);
-  }, [data.themed, sector, sort, dir]);
+  }, [data.themed, sector, tierFilter, sort, dir]);
 
   const vetoed = useMemo(
     () => data.vetoed.filter((r) => sector === "all" || r.sector === sector),
@@ -263,6 +373,18 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
           >
             {s.label}
             {sort === s.key ? (dir === -1 ? " ↓" : " ↑") : ""}
+          </button>
+        ))}
+
+        <span className="ctl-label">Tier</span>
+        {TIER_FILTERS.map((t) => (
+          <button
+            key={t}
+            className="chip"
+            aria-pressed={tierFilter === t}
+            onClick={() => setTierFilter(t)}
+          >
+            {t === "all" ? "All tiers" : t}
           </button>
         ))}
 
@@ -288,13 +410,30 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
           </caption>
           <Header sort={sort} dir={dir} onSort={onSort} />
           <tbody>
-            {rows.map((r) => (
-              <DataRow key={r.ticker} row={r} />
-            ))}
+            {rows.flatMap((r) => {
+              const open = expanded.has(r.ticker);
+              return open
+                ? [
+                    <DataRow key={r.ticker} row={r} expanded onToggle={() => toggleRow(r.ticker)} />,
+                    <RowDetail key={`${r.ticker}-detail`} row={r} />,
+                  ]
+                : [
+                    <DataRow
+                      key={r.ticker}
+                      row={r}
+                      expanded={false}
+                      onToggle={() => toggleRow(r.ticker)}
+                    />,
+                  ];
+            })}
           </tbody>
         </table>
         {rows.length === 0 && (
-          <p className="empty">No names in this sector cleared the liquidity gate today.</p>
+          <p className="empty">
+            {tierFilter === "all"
+              ? "No names in this sector cleared the liquidity gate today."
+              : `No ${tierFilter} names${sector === "all" ? "" : " in this sector"} today.`}
+          </p>
         )}
       </div>
 
@@ -318,10 +457,39 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
           {showVetoed && (
             <div className="panel">
               <table>
+                <caption className="sr-only">
+                  Theme names withheld by the crowding veto, ranked with everything else
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">RS rank</th>
+                    <th scope="col">Figures</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {vetoed.map((r) => (
-                    <DataRow key={r.ticker} row={r} />
-                  ))}
+                  {vetoed.flatMap((r) => {
+                    const open = expanded.has(r.ticker);
+                    return open
+                      ? [
+                          <DataRow
+                            key={r.ticker}
+                            row={r}
+                            expanded
+                            onToggle={() => toggleRow(r.ticker)}
+                          />,
+                          <RowDetail key={`${r.ticker}-detail`} row={r} />,
+                        ]
+                      : [
+                          <DataRow
+                            key={r.ticker}
+                            row={r}
+                            expanded={false}
+                            onToggle={() => toggleRow(r.ticker)}
+                          />,
+                        ];
+                  })}
                 </tbody>
               </table>
             </div>
