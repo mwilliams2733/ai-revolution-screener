@@ -20,6 +20,7 @@ import {
 import { barsByTicker } from "../lib/factors";
 import { runScreen, DEFAULT_PARAMS } from "../lib/index";
 import type { Snapshots } from "../lib/types";
+import { isoDaysAgo } from "../lib/dates";
 
 /** Expected RS percentiles from STRATEGY_DECODED.md section 2. */
 const EXPECTED: Record<string, number> = {
@@ -28,11 +29,6 @@ const EXPECTED: Record<string, number> = {
   KTOS: 15, EVLV: 12, SYM: 8,
 };
 
-function isoDaysAgo(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
 
 async function main(): Promise<void> {
   console.log("resolving trading calendar...");

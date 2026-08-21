@@ -17,6 +17,7 @@
 
 import { groupedDaily, tradingCalendar, fullUniverse } from "../lib/polygon";
 import { classifySession, sessionsToFetch } from "../lib/session-ledger";
+import { isoDaysAgo } from "../lib/dates";
 import {
   upsertTickers,
   insertBars,
@@ -26,11 +27,6 @@ import {
   finishRun,
 } from "../lib/db";
 
-function isoDaysAgo(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);

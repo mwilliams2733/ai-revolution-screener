@@ -23,6 +23,7 @@ import {
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
 import { classifySession } from "@/lib/session-ledger";
+import { isoDaysAgo } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,11 +38,16 @@ export const maxDuration = 300;
  */
 const MAX_SESSIONS_PER_RUN = 3;
 
-function isoDaysAgo(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
+/**
+ * How far back to look for gaps. (Finding M4)
+ *
+ * Must be comfortably wider than MAX_SESSIONS_PER_RUN or a backlog can never
+ * drain: with a 10-session window and 3 fetched per night, an outage longer
+ * than about two weeks left the oldest gaps permanently outside the window,
+ * and `remaining` reported a number that never fell.
+ */
+const CATCHUP_WINDOW = 60;
+
 
 /** Constant-time-ish compare, to avoid leaking the secret through timing. */
 function secretMatches(given: string, expected: string): boolean {
@@ -86,10 +92,10 @@ async function handle(req: Request) {
   const retried: string[] = [];
 
   try {
-    // Real session dates, newest first. Ten days back is ample for a nightly
-    // run and still covers a holiday week.
-    const calendar = await tradingCalendar(isoDaysAgo(20), isoDaysAgo(0));
-    const recent = calendar.slice(0, 10);
+    // Real session dates, newest first, over a window wide enough that a
+    // backlog drains instead of falling off the end.
+    const calendar = await tradingCalendar(isoDaysAgo(CATCHUP_WINDOW * 2), isoDaysAgo(0));
+    const recent = calendar.slice(0, CATCHUP_WINDOW);
     const todo = (await missingSessions(recent)).slice(0, MAX_SESSIONS_PER_RUN);
 
     for (const date of todo) {
@@ -130,7 +136,7 @@ async function handle(req: Request) {
       emptyRetried: retried,
       barsAdded,
       tiersSnapshotted: snapshotted,
-      remaining: Math.max(0, (await missingSessions(calendar.slice(0, 10))).length),
+      remaining: Math.max(0, (await missingSessions(recent)).length),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "refresh failed";

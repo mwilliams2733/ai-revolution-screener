@@ -24,6 +24,7 @@ import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
 import { runScreen, DEFAULT_PARAMS } from "./index";
 import { exclusionReason, themeUniverse } from "./theme";
 import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots } from "./types";
+import { isoDaysAgo } from "./dates";
 
 const ANCHOR_LABELS: readonly AnchorLabel[] = ["r1m", "r3m", "r6m", "r12m"] as const;
 
@@ -89,11 +90,6 @@ export interface ScreenPayload {
   };
 }
 
-function isoDaysAgo(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
 
 /** Is a Postgres connection configured at all? */
 function dbConfigured(): boolean {
