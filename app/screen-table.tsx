@@ -111,6 +111,22 @@ function Figures({ row }: { row: Row }) {
         <span className="fig-k">Vol </span>
         <span className="fig-v num">{money(row.dollarVolume)}</span>
       </span>
+      {isPriced(row) && row.accumulation && (
+        <span>
+          <span className="fig-k">Acc </span>
+          <span className={`fig-v grade grade-${row.accumulation}`} title={`Accumulation ${row.accumulation}`}>
+            {row.accumulation}
+          </span>
+        </span>
+      )}
+      {isPriced(row) && row.volume.udRatio != null && (
+        <span>
+          <span className="fig-k">U/D </span>
+          <span className={`fig-v num ${row.volume.udRatio >= 1 ? "pos" : "neg"}`}>
+            {row.volume.udRatio.toFixed(1)}
+          </span>
+        </span>
+      )}
       {isPriced(row) && row.open != null && (
         <span>
           <span className="fig-k">O/C </span>
@@ -168,6 +184,40 @@ function RowDetail({ row }: { row: Row }) {
           <div>
             <dt>Dollar volume</dt>
             <dd className="num">{money(row.dollarVolume)}</dd>
+          </div>
+          <div>
+            <dt>Up/down volume</dt>
+            <dd className="num">
+              {priced?.volume.udRatio != null ? priced.volume.udRatio.toFixed(2) : MISSING}
+              {priced?.accumulationPct != null && (
+                <span className="detail-note"> · {Math.round(priced.accumulationPct)}th pct</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>OBV slope</dt>
+            <dd className={`num ${signClass(priced?.volume.obvSlope ?? null)}`}>
+              {priced?.volume.obvSlope != null ? priced.volume.obvSlope.toFixed(3) : MISSING}
+            </dd>
+          </div>
+          <div>
+            <dt>Relative volume</dt>
+            <dd className="num">
+              {priced?.volume.rvol != null ? `${priced.volume.rvol.toFixed(2)}x` : MISSING}
+              {priced?.volume.rvol != null && priced.volume.rvol > 2 && (
+                <span className="detail-note"> · elevated</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Volume confirms</dt>
+            <dd>
+              {priced?.volume.udRatio == null
+                ? MISSING
+                : priced.confirmed
+                  ? "Yes"
+                  : "No — rising on weak volume"}
+            </dd>
           </div>
           {priced && (
             <div className="detail-wide">

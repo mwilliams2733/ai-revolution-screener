@@ -661,3 +661,18 @@ tr.vetoed .rail-fill { background: var(--veto); }
   white-space: nowrap;
   border: 0;
 }
+
+/* Accumulation grade: one letter, colour reinforcing but never sole carrier. */
+.grade {
+  display: inline-block;
+  min-width: 1.35em;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.grade-A { color: var(--cool-strong); background: color-mix(in srgb, var(--cool-strong) 15%, transparent); }
+.grade-B { color: var(--cool-mid);    background: color-mix(in srgb, var(--cool-mid) 15%, transparent); }
+.grade-C { color: var(--muted);       background: color-mix(in srgb, var(--muted) 13%, transparent); }
+.grade-D { color: var(--warm);        background: color-mix(in srgb, var(--warm) 13%, transparent); }
+.grade-E { color: var(--warm);        background: color-mix(in srgb, var(--warm) 20%, transparent); }

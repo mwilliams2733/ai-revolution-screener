@@ -15,9 +15,18 @@ import {
   tradingCalendar,
 } from "./polygon";
 import { barsByTicker } from "./factors";
-import { loadCloseHistory, loadOpens, loadSnapshot, storedTradingSessions, tickerNames } from "./db";
+import {
+  loadCloseHistory,
+  loadOpens,
+  loadSnapshot,
+  loadVolumeHistory,
+  storedTradingSessions,
+  tickerNames,
+} from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
+import { VOLUME_WINDOW, type VolumeBar } from "./volume";
+import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -51,11 +60,21 @@ async function loadHistory(): Promise<Map<string, number[]>> {
   }
 }
 
+/** Close and volume for the volume family. Empty without a database. */
+async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
+  if (!dbConfigured()) return new Map();
+  try {
+    return await loadVolumeHistory(VOLUME_WINDOW + 1);
+  } catch {
+    return new Map();
+  }
+}
+
 /** How many names may hold the Strong Buy tier at once. */
 export const STRONG_BUY_LIMIT = 10;
 
 /** A screen row carrying the day's open alongside the close. */
-export interface PricedRow extends CappedRow {
+export interface PricedRow extends CappedRow, VolumeFields {
   /** Whether vsMa came from a real rolling mean or the five-point proxy. */
   readonly maSource: MaSource;
   /** Session open. Null when the source did not carry one. */
@@ -87,6 +106,9 @@ export interface ScreenPayload {
     /** Rows whose vsMa is a true rolling mean rather than the proxy. */
     readonly trueMaRows: number;
     readonly maWindow: number;
+    /** Rows with enough history for an up/down volume ratio. */
+    readonly volumeMeasured: number;
+    readonly volumeWindow: number;
   };
 }
 
@@ -344,7 +366,11 @@ async function computeScreen(): Promise<ScreenPayload> {
   // name would burn a slot on its way out.
   const limited = capStrongBuy(overlaid, STRONG_BUY_LIMIT);
 
-  const priced: PricedRow[] = limited.map((r) => ({
+  // Volume metrics grade against the FULL ranked universe, never the theme.
+  const volumeBars = await loadVolumeBars();
+  const withVolume = applyVolume(ranked, limited, volumeBars);
+
+  const priced: PricedRow[] = withVolume.map((r) => ({
     ...r,
     open: opens.get(r.ticker) ?? null,
   }));
@@ -368,6 +394,8 @@ async function computeScreen(): Promise<ScreenPayload> {
       fundamentalsChecked: fundamentals.size,
       trueMaRows: trueMaCount(trended),
       maWindow: MA_WINDOW,
+      volumeMeasured: volumeMeasuredCount(withVolume),
+      volumeWindow: VOLUME_WINDOW,
     },
   };
 }

@@ -126,6 +126,37 @@ export async function loadCloseHistory(window: number): Promise<Map<string, numb
   return out;
 }
 
+/**
+ * Close and volume per ticker over the last `window` stored sessions.
+ *
+ * One query for the whole universe, same reasoning as loadCloseHistory: the
+ * volume family needs 50 bars for ~2,200 names, and doing that per ticker would
+ * be the per-ticker mistake grouped-daily exists to avoid.
+ */
+export async function loadVolumeHistory(
+  window: number,
+): Promise<Map<string, { close: number; volume: number }[]>> {
+  const sql = client();
+  const rows = (await sql`
+    WITH recent AS (
+      SELECT session FROM stored_sessions ORDER BY session DESC LIMIT ${window}
+    )
+    SELECT b.ticker, b.close, b.volume
+    FROM daily_bars b
+    JOIN recent r ON r.session = b.session
+    ORDER BY b.ticker, b.session ASC
+  `) as { ticker: string; close: number; volume: number }[];
+
+  const out = new Map<string, { close: number; volume: number }[]>();
+  for (const r of rows) {
+    const bar = { close: Number(r.close), volume: Number(r.volume) };
+    const list = out.get(r.ticker);
+    if (list) list.push(bar);
+    else out.set(r.ticker, [bar]);
+  }
+  return out;
+}
+
 /** Open prices for one stored session, ticker -> open. */
 export async function loadOpens(session: string): Promise<Map<string, number>> {
   const sql = client();
