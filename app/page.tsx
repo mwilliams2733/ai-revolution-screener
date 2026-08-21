@@ -69,6 +69,18 @@ export default async function Page() {
     <main className="wrap">
       <header className="masthead">
         <h1 className="title">AI Revolution Screener</h1>
+
+        {/* Silence when current; loud only when the refresh has actually
+            stopped. A screener showing week-old prices that looks identical to
+            a fresh one is the dangerous case. */}
+        {data.staleness.freshness !== "current" && (
+          <p
+            className={`stale-banner ${data.staleness.freshness}`}
+            role={data.staleness.freshness === "very-stale" ? "alert" : undefined}
+          >
+            <strong>{data.staleness.label}.</strong> Showing the close from {data.asOf}.
+          </p>
+        )}
         <p className="subtitle">
           Relative strength ranked across every liquid US name, then filtered to the AI
           CapEx-taker theme. Ranking happens before the filter, which is what keeps the tier
@@ -78,7 +90,9 @@ export default async function Page() {
         <div className="stats">
           <span>
             <span className="stat-k">Session</span>
-            <span className="stat-v num">{data.asOf}</span>
+            <span className="stat-v num" title={data.staleness.label}>
+              {data.asOf}
+            </span>
           </span>
           <span>
             <span className="stat-k">Ranked universe</span>

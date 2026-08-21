@@ -522,3 +522,23 @@ tr.vetoed .rail-fill { background: var(--veto); }
 }
 /* Missing figures read as absent, never as a bad score. */
 .fig-v.unknown, .unknown { color: var(--muted); opacity: 0.75; }
+
+/* Staleness banner: informational at one session, an alert beyond that. (H3) */
+.stale-banner {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  border: 1px solid;
+}
+.stale-banner.stale {
+  color: var(--muted);
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+.stale-banner.very-stale {
+  color: var(--warm);
+  border-color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 8%, transparent);
+}

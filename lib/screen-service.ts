@@ -17,6 +17,7 @@ import {
 import { barsByTicker } from "./factors";
 import { loadCloseHistory, loadOpens, loadSnapshot, storedTradingSessions, tickerNames } from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
+import { assessStaleness, type StalenessReport } from "./staleness";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -64,6 +65,8 @@ export interface ScreenPayload {
   readonly asOf: string;
   readonly anchors: Record<string, { date: string; bars: number; source: Source }>;
   readonly universeSize: number;
+  /** How far behind the latest trading session this data is. */
+  readonly staleness: StalenessReport;
   readonly themed: readonly PricedRow[];
   readonly portfolio: readonly ScreenRow[];
   /** How many momentum Strong Buys the fundamental gate moved down. */
@@ -304,6 +307,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   const started = Date.now();
 
   const { calendar, source: calendarSource } = await resolveCalendar();
+  // Keep the calendar so staleness is measured in sessions, not calendar days.
   const dates = anchorDates(calendar, DEFAULT_PARAMS.lookbacks);
 
   const missing = Object.entries(dates).filter(([, v]) => !v).map(([k]) => k);
@@ -351,6 +355,7 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   return {
     asOf: dates.now as string,
+    staleness: assessStaleness(dates.now as string, calendar),
     anchors,
     universeSize,
     themed: priced,
@@ -385,6 +390,8 @@ export interface LookupResult {
   /** Why it is not on the screen, when it is not. */
   readonly reason: string | null;
   readonly universeSize: number;
+  /** How far behind the latest trading session this data is. */
+  readonly staleness: StalenessReport;
   readonly asOf: string;
 }
 
@@ -436,6 +443,7 @@ export async function lookupTicker(rawTicker: string): Promise<LookupResult> {
     reason,
     universeSize: screen.universeSize,
     asOf: screen.asOf,
+    staleness: screen.staleness,
   };
 }
 
@@ -445,6 +453,7 @@ async function getScreenRanked(): Promise<{
   nowBars: BarsByTicker;
   universeSize: number;
   asOf: string;
+  staleness: StalenessReport;
 }> {
   const { calendar } = await resolveCalendar();
   const dates = anchorDates(calendar, DEFAULT_PARAMS.lookbacks);
@@ -459,5 +468,11 @@ async function getScreenRanked(): Promise<{
     snapshots: snapshots as unknown as Snapshots,
     names,
   });
-  return { ranked, nowBars: snapshots.now, universeSize, asOf: dates.now as string };
+  return {
+    ranked,
+    nowBars: snapshots.now,
+    universeSize,
+    asOf: dates.now as string,
+    staleness: assessStaleness(dates.now as string, calendar),
+  };
 }
