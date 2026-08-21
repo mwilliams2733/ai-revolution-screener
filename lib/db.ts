@@ -79,16 +79,20 @@ export async function insertBars(session: string, bars: readonly PolygonBar[]): 
   let n = 0;
   for (const batch of chunk(usable, CHUNK)) {
     await sql`
-      INSERT INTO daily_bars (session, ticker, open, close, volume, vwap)
+      INSERT INTO daily_bars (session, ticker, open, high, low, close, volume, vwap)
       SELECT ${session}::date, * FROM UNNEST(
         ${batch.map((b) => b.T)}::text[],
         ${batch.map((b) => b.o ?? null)}::float8[],
+        ${batch.map((b) => b.h ?? null)}::float8[],
+        ${batch.map((b) => b.l ?? null)}::float8[],
         ${batch.map((b) => b.c)}::float8[],
         ${batch.map((b) => b.v ?? 0)}::float8[],
         ${batch.map((b) => b.vw ?? null)}::float8[]
-      ) AS t(ticker, open, close, volume, vwap)
+      ) AS t(ticker, open, high, low, close, volume, vwap)
       ON CONFLICT (session, ticker) DO UPDATE SET
         open   = EXCLUDED.open,
+        high   = EXCLUDED.high,
+        low    = EXCLUDED.low,
         close  = EXCLUDED.close,
         volume = EXCLUDED.volume,
         vwap   = EXCLUDED.vwap
@@ -150,6 +154,37 @@ export async function loadVolumeHistory(
   const out = new Map<string, { close: number; volume: number }[]>();
   for (const r of rows) {
     const bar = { close: Number(r.close), volume: Number(r.volume) };
+    const list = out.get(r.ticker);
+    if (list) list.push(bar);
+    else out.set(r.ticker, [bar]);
+  }
+  return out;
+}
+
+/**
+ * Close, high and low per ticker over the last `window` stored sessions.
+ *
+ * The trend template needs intraday extremes for the 52-week range, which
+ * closes cannot supply, plus 222 sessions for the 200d MA and its slope test.
+ */
+export async function loadTrendHistory(
+  window: number,
+): Promise<Map<string, { close: number; high: number; low: number }[]>> {
+  const sql = client();
+  const rows = (await sql`
+    WITH recent AS (
+      SELECT session FROM stored_sessions ORDER BY session DESC LIMIT ${window}
+    )
+    SELECT b.ticker, b.close, b.high, b.low
+    FROM daily_bars b
+    JOIN recent r ON r.session = b.session
+    WHERE b.high IS NOT NULL AND b.low IS NOT NULL
+    ORDER BY b.ticker, b.session ASC
+  `) as { ticker: string; close: number; high: number; low: number }[];
+
+  const out = new Map<string, { close: number; high: number; low: number }[]>();
+  for (const r of rows) {
+    const bar = { close: Number(r.close), high: Number(r.high), low: Number(r.low) };
     const list = out.get(r.ticker);
     if (list) list.push(bar);
     else out.set(r.ticker, [bar]);

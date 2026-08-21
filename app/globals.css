@@ -676,3 +676,28 @@ tr.vetoed .rail-fill { background: var(--veto); }
 .grade-C { color: var(--muted);       background: color-mix(in srgb, var(--muted) 13%, transparent); }
 .grade-D { color: var(--warm);        background: color-mix(in srgb, var(--warm) 13%, transparent); }
 .grade-E { color: var(--warm);        background: color-mix(in srgb, var(--warm) 20%, transparent); }
+
+/* Trend template count and Weinstein stage. Colour reinforces, text carries. */
+.tt-count { font-weight: 600; }
+.tt-hi  { color: var(--cool-strong); }
+.tt-mid { color: var(--cool-mid); }
+.tt-lo  { color: var(--warm); }
+
+.stage {
+  display: inline-block;
+  min-width: 1.35em;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.stage-1 { color: var(--muted);       background: color-mix(in srgb, var(--muted) 13%, transparent); }
+.stage-2 { color: var(--cool-strong); background: color-mix(in srgb, var(--cool-strong) 15%, transparent); }
+.stage-3 { color: var(--warm);        background: color-mix(in srgb, var(--warm) 14%, transparent); }
+.stage-4 { color: var(--warm);        background: color-mix(in srgb, var(--warm) 22%, transparent); }
+.stage-Transitional { color: var(--muted); background: color-mix(in srgb, var(--muted) 10%, transparent); }
+
+.criteria { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.criteria li { font-size: 0.72rem; }
+.criteria .pass { color: var(--cool-strong); }
+.criteria .fail { color: var(--muted); }

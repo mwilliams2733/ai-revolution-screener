@@ -16,6 +16,7 @@ import {
 } from "./polygon";
 import { barsByTicker } from "./factors";
 import {
+  loadTrendHistory,
   loadCloseHistory,
   loadOpens,
   loadSnapshot,
@@ -27,6 +28,8 @@ import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-ave
 import { assessStaleness, type StalenessReport } from "./staleness";
 import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
+import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
+import type { TrendBar } from "./trend-template";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -60,6 +63,16 @@ async function loadHistory(): Promise<Map<string, number[]>> {
   }
 }
 
+/** Close, high and low for the trend family. Empty without a database. */
+async function loadTrendBars(): Promise<Map<string, TrendBar[]>> {
+  if (!dbConfigured()) return new Map();
+  try {
+    return await loadTrendHistory(Math.max(TREND_MIN_HISTORY, 252));
+  } catch {
+    return new Map();
+  }
+}
+
 /** Close and volume for the volume family. Empty without a database. */
 async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
   if (!dbConfigured()) return new Map();
@@ -74,7 +87,7 @@ async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
 export const STRONG_BUY_LIMIT = 10;
 
 /** A screen row carrying the day's open alongside the close. */
-export interface PricedRow extends CappedRow, VolumeFields {
+export interface PricedRow extends CappedRow, VolumeFields, TrendFields {
   /** Whether vsMa came from a real rolling mean or the five-point proxy. */
   readonly maSource: MaSource;
   /** Session open. Null when the source did not carry one. */
@@ -109,6 +122,9 @@ export interface ScreenPayload {
     /** Rows with enough history for an up/down volume ratio. */
     readonly volumeMeasured: number;
     readonly volumeWindow: number;
+    /** Rows with enough history for a full 8-criterion trend template. */
+    readonly trendScored: number;
+    readonly trendMinHistory: number;
   };
 }
 
@@ -370,7 +386,11 @@ async function computeScreen(): Promise<ScreenPayload> {
   const volumeBars = await loadVolumeBars();
   const withVolume = applyVolume(ranked, limited, volumeBars);
 
-  const priced: PricedRow[] = withVolume.map((r) => ({
+  // Trend template and stage: per-ticker, and null without true averages.
+  const trendBars = await loadTrendBars();
+  const withTrend = applyTrend(withVolume, trendBars);
+
+  const priced: PricedRow[] = withTrend.map((r) => ({
     ...r,
     open: opens.get(r.ticker) ?? null,
   }));
@@ -396,6 +416,8 @@ async function computeScreen(): Promise<ScreenPayload> {
       maWindow: MA_WINDOW,
       volumeMeasured: volumeMeasuredCount(withVolume),
       volumeWindow: VOLUME_WINDOW,
+      trendScored: trendScoredCount(withTrend),
+      trendMinHistory: TREND_MIN_HISTORY,
     },
   };
 }

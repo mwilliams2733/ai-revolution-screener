@@ -7,6 +7,7 @@ import type { ScreenRow, Tier } from "@/lib/types";
 import { DEFAULT_PARAMS } from "@/lib/params";
 import { MISSING, money, num, pct, railWidth, signClass } from "@/lib/format";
 import { usePersistedState } from "./use-persisted-state";
+import { TREND_MIN_HISTORY } from "@/lib/trend-template";
 
 /** Tier cutoffs drawn on every rail. These are the real decision boundaries. */
 const BUY_CUT = DEFAULT_PARAMS.buyRs;
@@ -26,6 +27,18 @@ const SORTS: { key: SortKey; label: string }[] = [
 type TierFilter = "all" | "Strong Buy" | "Buy" | "Hold";
 
 const TIER_FILTERS: TierFilter[] = ["all", "Strong Buy", "Buy", "Hold"];
+
+/** Plain-language names for the eight trend criteria. */
+const CRITERION_LABELS: Record<string, string> = {
+  priceAboveLongMas: "Above 150d and 200d",
+  ma150AboveMa200: "150d above 200d",
+  ma200Rising: "200d rising for a month",
+  ma50AboveLongMas: "50d above both",
+  priceAboveMa50: "Above 50d",
+  above30PctOfLow: "30% above 52w low",
+  within25PctOfHigh: "Within 25% of 52w high",
+  rsAtLeast70: "RS at least 70",
+};
 
 type Row = PricedRow | VetoedRow | ScreenRow;
 
@@ -111,6 +124,27 @@ function Figures({ row }: { row: Row }) {
         <span className="fig-k">Vol </span>
         <span className="fig-v num">{money(row.dollarVolume)}</span>
       </span>
+      {isPriced(row) && row.trend && (
+        <span>
+          <span className="fig-k">TT </span>
+          <span
+            className={`fig-v num tt-count tt-${row.trend.count >= 7 ? "hi" : row.trend.count >= 5 ? "mid" : "lo"}`}
+            title={Object.entries(row.trend.flags)
+              .map(([k, v]) => `${v ? "PASS" : "fail"} ${k}`)
+              .join(" · ")}
+          >
+            {row.trend.count}/8
+          </span>
+        </span>
+      )}
+      {isPriced(row) && row.stage && (
+        <span>
+          <span className="fig-k">Stage </span>
+          <span className={`fig-v stage stage-${row.stage.stage}`} title={row.stage.label}>
+            {row.stage.stage === "Transitional" ? "T" : row.stage.stage}
+          </span>
+        </span>
+      )}
       {isPriced(row) && row.accumulation && (
         <span>
           <span className="fig-k">Acc </span>
@@ -184,6 +218,32 @@ function RowDetail({ row }: { row: Row }) {
           <div>
             <dt>Dollar volume</dt>
             <dd className="num">{money(row.dollarVolume)}</dd>
+          </div>
+          <div className="detail-wide">
+            <dt>Trend template</dt>
+            <dd>
+              {priced?.trend == null ? (
+                <span className="detail-note">
+                  Needs {TREND_MIN_HISTORY} sessions of history — not yet stored
+                </span>
+              ) : (
+                <ul className="criteria">
+                  {Object.entries(priced.trend.flags).map(([k, v]) => (
+                    <li key={k} className={v ? "pass" : "fail"}>
+                      <span aria-hidden="true">{v ? "✓" : "✗"}</span> {CRITERION_LABELS[k] ?? k}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Stage</dt>
+            <dd>
+              {priced?.stage
+                ? `${priced.stage.stage} — ${priced.stage.label} (150d slope ${(priced.stage.slope150 * 100).toFixed(1)}%)`
+                : MISSING}
+            </dd>
           </div>
           <div>
             <dt>Up/down volume</dt>

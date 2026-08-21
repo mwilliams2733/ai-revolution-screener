@@ -90,6 +90,8 @@ async function get<T>(path: string, opts: FetchOptions = {}): Promise<T> {
  */
 export interface GroupedBar extends PolygonBar {
   readonly o?: number;
+  readonly h?: number;
+  readonly l?: number;
 }
 
 interface GroupedResponse {
