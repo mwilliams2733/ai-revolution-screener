@@ -57,7 +57,11 @@ export default async function Page() {
     );
   }
 
-  const marks = data.themed.map((r) => r.rsPct ?? 0);
+  // Unranked names are omitted from the strip rather than stacked at zero,
+  // which would invent a cluster of worst-in-market names that do not exist.
+  const marks = data.themed
+    .map((r) => r.rsPct)
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
   const strong = data.themed.filter((r) => r.tier === "Strong Buy").length;
   const cached = Object.values(data.anchors).filter((a) => a.source === "db").length;
 

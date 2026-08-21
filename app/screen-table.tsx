@@ -5,6 +5,7 @@ import { STRONG_BUY_LIMIT, type PricedRow, type ScreenPayload, type VetoedRow } 
 import CompanyTooltip from "./company-tooltip";
 import type { ScreenRow, Tier } from "@/lib/types";
 import { DEFAULT_PARAMS } from "@/lib/params";
+import { MISSING, money, num, pct, railWidth, signClass } from "@/lib/format";
 
 /** Tier cutoffs drawn on every rail. These are the real decision boundaries. */
 const BUY_CUT = DEFAULT_PARAMS.buyRs;
@@ -26,16 +27,7 @@ type Row = PricedRow | VetoedRow | ScreenRow;
 const isVetoed = (r: Row): r is VetoedRow => "excluded" in r;
 const isPriced = (r: Row): r is PricedRow => "gate" in r;
 
-function pct(n: number | null | undefined, digits = 1): string {
-  if (n == null || !Number.isFinite(n)) return "--";
-  return `${n >= 0 ? "+" : ""}${n.toFixed(digits)}%`;
-}
 
-function money(n: number): string {
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`;
-  return `$${n.toFixed(0)}`;
-}
 
 function sectorLabel(s: string): string {
   return s.replace(/_/g, " ");
@@ -44,6 +36,7 @@ function sectorLabel(s: string): string {
 /** Cool above the MA proxy, warm below it. Intensity carries the tier. */
 function toneOf(row: Row): string {
   if (isVetoed(row)) return "var(--veto)";
+  if (!Number.isFinite(row.vsMa)) return "var(--muted)";
   if (row.vsMa < 0) return "var(--warm)";
   if (row.tier === "Strong Buy") return "var(--cool-strong)";
   if (row.tier === "Buy") return "var(--cool-mid)";
@@ -59,7 +52,16 @@ function badgeClass(row: Row): string {
 }
 
 function Rail({ row }: { row: Row }) {
-  const p = Math.max(0, Math.min(100, row.rsPct ?? 0));
+  const p = railWidth(row.rsPct);
+  // An unmeasured percentile must not draw a zero-length bar: that reads as a
+  // real bottom rank rather than as "not ranked".
+  if (p == null) {
+    return (
+      <div className="rail rail-unknown" role="img" aria-label="Relative strength not measured">
+        <span className="rail-unknown-label">not ranked</span>
+      </div>
+    );
+  }
   return (
     <>
       <div
@@ -86,19 +88,19 @@ function Figures({ row }: { row: Row }) {
     <div className="figs">
       <span>
         <span className="fig-k">RS </span>
-        <span className="fig-v num">{Math.round(row.rsPct ?? 0)}</span>
+        <span className="fig-v num">{num(row.rsPct)}</span>
       </span>
       <span>
         <span className="fig-k">vs MA </span>
-        <span className={`fig-v num ${row.vsMa >= 0 ? "pos" : "neg"}`}>{pct(row.vsMa)}</span>
+        <span className={`fig-v num ${signClass(row.vsMa)}`}>{pct(row.vsMa)}</span>
       </span>
       <span>
         <span className="fig-k">3M </span>
-        <span className={`fig-v num ${row.r3m >= 0 ? "pos" : "neg"}`}>{pct(row.r3m, 0)}</span>
+        <span className={`fig-v num ${signClass(row.r3m)}`}>{pct(row.r3m, 0)}</span>
       </span>
       <span>
         <span className="fig-k">12M </span>
-        <span className={`fig-v num ${row.r12m >= 0 ? "pos" : "neg"}`}>{pct(row.r12m, 0)}</span>
+        <span className={`fig-v num ${signClass(row.r12m)}`}>{pct(row.r12m, 0)}</span>
       </span>
       <span>
         <span className="fig-k">Vol </span>

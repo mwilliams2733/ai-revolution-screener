@@ -500,3 +500,25 @@ tr.vetoed .rail-fill { background: var(--veto); }
 
 /* A capped name failed nothing — it was simply out-ranked. Neutral, not warm. */
 .gate-note.cap { color: var(--cool-mid); }
+
+/* An unmeasured percentile: visibly not a zero-length bar. (H2) */
+.rail-unknown {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--rail-bg),
+    var(--rail-bg) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  height: auto;
+  padding: 1px 0;
+  text-align: center;
+}
+.rail-unknown-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Missing figures read as absent, never as a bad score. */
+.fig-v.unknown, .unknown { color: var(--muted); opacity: 0.75; }

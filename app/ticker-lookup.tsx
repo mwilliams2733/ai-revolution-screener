@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { num, pct, signClass } from "@/lib/format";
 
 interface Row {
   ticker: string;
@@ -25,7 +26,6 @@ interface Result {
   asOf: string;
 }
 
-const pct = (n: number, d = 1) => `${n >= 0 ? "+" : ""}${n.toFixed(d)}%`;
 
 export default function TickerLookup() {
   const [value, setValue] = useState("");
@@ -97,7 +97,7 @@ export default function TickerLookup() {
           <div className="figs">
             <span>
               <span className="fig-k">RS </span>
-              <span className="fig-v num">{Math.round(r.rsPct ?? 0)}</span>
+              <span className="fig-v num">{num(r.rsPct)}</span>
               <span className="fig-k"> of {result.universeSize.toLocaleString()}</span>
             </span>
             <span>
@@ -106,15 +106,15 @@ export default function TickerLookup() {
             </span>
             <span>
               <span className="fig-k">vs MA </span>
-              <span className={`fig-v num ${r.vsMa >= 0 ? "pos" : "neg"}`}>{pct(r.vsMa)}</span>
+              <span className={`fig-v num ${signClass(r.vsMa)}`}>{pct(r.vsMa)}</span>
             </span>
             <span>
               <span className="fig-k">3M </span>
-              <span className={`fig-v num ${r.r3m >= 0 ? "pos" : "neg"}`}>{pct(r.r3m, 0)}</span>
+              <span className={`fig-v num ${signClass(r.r3m)}`}>{pct(r.r3m, 0)}</span>
             </span>
             <span>
               <span className="fig-k">12M </span>
-              <span className={`fig-v num ${r.r12m >= 0 ? "pos" : "neg"}`}>{pct(r.r12m, 0)}</span>
+              <span className={`fig-v num ${signClass(r.r12m)}`}>{pct(r.r12m, 0)}</span>
             </span>
           </div>
 
