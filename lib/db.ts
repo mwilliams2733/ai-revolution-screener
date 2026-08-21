@@ -98,6 +98,34 @@ export async function insertBars(session: string, bars: readonly PolygonBar[]): 
   return n;
 }
 
+/**
+ * Daily closes per ticker over the last `window` stored sessions, oldest first.
+ *
+ * One query for the whole universe rather than one per ticker: 2,200 round
+ * trips to build moving averages would be the same per-ticker mistake the
+ * grouped-daily endpoint exists to avoid.
+ */
+export async function loadCloseHistory(window: number): Promise<Map<string, number[]>> {
+  const sql = client();
+  const rows = (await sql`
+    WITH recent AS (
+      SELECT session FROM stored_sessions ORDER BY session DESC LIMIT ${window}
+    )
+    SELECT b.ticker, b.session::text AS session, b.close
+    FROM daily_bars b
+    JOIN recent r ON r.session = b.session
+    ORDER BY b.ticker, b.session ASC
+  `) as { ticker: string; session: string; close: number }[];
+
+  const out = new Map<string, number[]>();
+  for (const r of rows) {
+    const list = out.get(r.ticker);
+    if (list) list.push(Number(r.close));
+    else out.set(r.ticker, [Number(r.close)]);
+  }
+  return out;
+}
+
 /** Open prices for one stored session, ticker -> open. */
 export async function loadOpens(session: string): Promise<Map<string, number>> {
   const sql = client();

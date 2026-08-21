@@ -24,12 +24,15 @@ export interface GateResult {
   readonly reason: string;
 }
 
-export interface OverlaidRow extends ScreenRow {
+/** Fields the gate attaches. Kept separate so the overlay can stay generic. */
+export interface GateFields {
   /** Tier from price data alone, before the fundamental overlay. */
   readonly momentumTier: Tier | null;
   readonly gate: GateVerdict;
   readonly gateReason: string;
 }
+
+export type OverlaidRow = ScreenRow & GateFields;
 
 /**
  * Judge one name's fundamentals.
@@ -77,11 +80,11 @@ export function fundamentalGate(f: Fundamentals | null | undefined): GateResult 
  * Only Strong Buy is at stake. The gate exists to tighten the top tier, not to
  * re-litigate Buy and Hold, which the momentum rank already separates.
  */
-export function applyFundamentalOverlay(
-  rows: readonly ScreenRow[],
+export function applyFundamentalOverlay<T extends ScreenRow>(
+  rows: readonly T[],
   fundamentals: ReadonlyMap<string, Fundamentals>,
   p: Params = DEFAULT_PARAMS,
-): OverlaidRow[] {
+): (T & GateFields)[] {
   return rows.map((r) => {
     const result = fundamentalGate(fundamentals.get(r.ticker));
     const demote = r.tier === "Strong Buy" && result.verdict === "demote";
@@ -100,6 +103,6 @@ export function applyFundamentalOverlay(
 }
 
 /** Count of names the gate actually moved, for reporting. */
-export function demotedCount(rows: readonly OverlaidRow[]): number {
+export function demotedCount(rows: readonly (ScreenRow & GateFields)[]): number {
   return rows.filter((r) => r.momentumTier === "Strong Buy" && r.tier !== "Strong Buy").length;
 }

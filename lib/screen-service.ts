@@ -15,7 +15,8 @@ import {
   tradingCalendar,
 } from "./polygon";
 import { barsByTicker } from "./factors";
-import { loadOpens, loadSnapshot, storedTradingSessions, tickerNames } from "./db";
+import { loadCloseHistory, loadOpens, loadSnapshot, storedTradingSessions, tickerNames } from "./db";
+import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -32,11 +33,29 @@ export interface VetoedRow extends ScreenRow {
   readonly excluded: string;
 }
 
+/**
+ * Daily closes for the moving-average window, empty when there is no database.
+ *
+ * With no stored history every row falls back to the five-point proxy, which is
+ * the current state of this deployment. The fallback is explicit and reported
+ * rather than silent, so the UI can say which average it used.
+ */
+async function loadHistory(): Promise<Map<string, number[]>> {
+  if (!dbConfigured()) return new Map();
+  try {
+    return await loadCloseHistory(MA_WINDOW);
+  } catch {
+    return new Map();
+  }
+}
+
 /** How many names may hold the Strong Buy tier at once. */
 export const STRONG_BUY_LIMIT = 10;
 
 /** A screen row carrying the day's open alongside the close. */
 export interface PricedRow extends CappedRow {
+  /** Whether vsMa came from a real rolling mean or the five-point proxy. */
+  readonly maSource: MaSource;
   /** Session open. Null when the source did not carry one. */
   readonly open: number | null;
 }
@@ -61,6 +80,9 @@ export interface ScreenPayload {
     readonly elapsedMs: number;
     /** Names the fundamental gate could actually judge. */
     readonly fundamentalsChecked: number;
+    /** Rows whose vsMa is a true rolling mean rather than the proxy. */
+    readonly trueMaRows: number;
+    readonly maWindow: number;
   };
 }
 
@@ -308,9 +330,14 @@ async function computeScreen(): Promise<ScreenPayload> {
     names,
   });
 
+  // True moving averages FIRST: they change vsMa, which re-decides the tier,
+  // which decides who the fundamental gate and the cap even consider.
+  const history = await loadHistory();
+  const trended = applyTrueMa(themed, history);
+
   // Fundamental overlay: tighten Strong Buy without touching the momentum core.
-  const fundamentals = await fundamentalsForCandidates(themed, ciks);
-  const overlaid = applyFundamentalOverlay(themed, fundamentals);
+  const fundamentals = await fundamentalsForCandidates(trended, ciks);
+  const overlaid = applyFundamentalOverlay(trended, fundamentals);
 
   // Cap AFTER the gate: the gate removes names that do not deserve the tier on
   // merit, then the cap takes the best of what is left. Reversed, a decelerating
@@ -338,6 +365,8 @@ async function computeScreen(): Promise<ScreenPayload> {
       dbAvailable: dbConfigured(),
       elapsedMs: Date.now() - started,
       fundamentalsChecked: fundamentals.size,
+      trueMaRows: trueMaCount(trended),
+      maWindow: MA_WINDOW,
     },
   };
 }

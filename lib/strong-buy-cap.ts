@@ -21,10 +21,13 @@ import { DEFAULT_PARAMS } from "./params";
 import type { OverlaidRow } from "./fundamental-gate";
 import type { Params, Tier } from "./types";
 
-export interface CappedRow extends OverlaidRow {
+/** Field the cap attaches. Separate so the overlay can stay generic. */
+export interface CapFields {
   /** True when this name met every rule but fell outside the top N. */
   readonly capped: boolean;
 }
+
+export type CappedRow = OverlaidRow & CapFields;
 
 /**
  * Rank order for the cap: relative strength first, then trend, then ticker.
@@ -48,12 +51,12 @@ function byRank(a: OverlaidRow, b: OverlaidRow): number {
  * Only current Strong Buys compete. Buy and Hold are untouched: the cap tightens
  * the top tier, it does not promote anything into it.
  */
-export function capStrongBuy(
-  rows: readonly OverlaidRow[],
+export function capStrongBuy<T extends OverlaidRow>(
+  rows: readonly T[],
   limit: number = DEFAULT_PARAMS.nStrong,
   p: Params = DEFAULT_PARAMS,
-): CappedRow[] {
-  const contenders = rows.filter((r) => r.tier === "Strong Buy").sort(byRank);
+): (T & CapFields)[] {
+  const contenders = [...rows].filter((r) => r.tier === "Strong Buy").sort(byRank);
   const keep = new Set(contenders.slice(0, limit).map((r) => r.ticker));
 
   return rows.map((r) => {
@@ -70,6 +73,6 @@ export function capStrongBuy(
 }
 
 /** How many names the cap moved down, for reporting. */
-export function cappedCount(rows: readonly CappedRow[]): number {
+export function cappedCount(rows: readonly CapFields[]): number {
   return rows.filter((r) => r.capped).length;
 }
