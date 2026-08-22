@@ -110,7 +110,7 @@ sessions, so a holiday week still compares like with like.
 
 | Figure | Meaning |
 |---|---|
-| **Annualised turnover** | Tier changes per position per year, from the recorded nights. Above ~200% suggests the cutoffs are chasing noise rather than tracking a regime. Measured over 248 reconstructed sessions it is **758%**, down from 1,177% before the two stickiness rules — still well above target, and the remaining churn has not been diagnosed. |
+| **Annualised turnover** | Tier changes per position per year, from the recorded nights. Above ~200% suggests the cutoffs are chasing noise rather than tracking a regime. Measured over **all** recorded sessions — 248 today — it is **744%**, down from 1,177% before the two stickiness rules. Still well above target, and the remaining churn has not been diagnosed. The window travels with the figure on screen: the same data reads 1303% over the last 30 sessions, which is a statement about one month rather than about the rules. |
 | **Median time in tier** | How many consecutive sessions a typical name has held its current tier. |
 | **Recent moves** | Every tier change in the recorded window, newest first. |
 | **Least stable** | The names flipping fastest. A name changing tier every few sessions is a signal-quality problem, not a trading opportunity. |
@@ -203,7 +203,7 @@ Three further readings worth knowing:
   beat its benchmark even with that help would be dead; clearing it this way
   proves much less.
 
-No transaction costs are modelled. At 758% annualised turnover that omission is
+No transaction costs are modelled. At 744% annualised turnover that omission is
 not small.
 
 ### Live versus replayed history

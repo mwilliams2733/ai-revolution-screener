@@ -179,7 +179,7 @@ export default async function Page() {
           <span className="sec-note">
             {data.history.sessions === 0
               ? "No nights recorded yet."
-              : `${data.history.sessions} night${data.history.sessions === 1 ? "" : "s"} recorded.`}
+              : `Measured over all ${data.history.sessions} recorded sessions.`}
           </span>
         </div>
 
@@ -194,7 +194,10 @@ export default async function Page() {
           <>
             <div className="risk">
               <span>
-                <span className="stat-k">Annualised turnover</span>
+                <span className="stat-k">
+                  Annualised turnover
+                  <span className="stat-window"> · {data.history.sessions} sessions</span>
+                </span>
                 <span className="stat-v num">
                   {data.history.turnover != null
                     ? `${Math.round(data.history.turnover * 100)}%`

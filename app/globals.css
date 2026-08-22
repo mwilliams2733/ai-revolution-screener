@@ -983,3 +983,7 @@ tr.vetoed .rail-fill { background: var(--veto); }
    the warm hue the rest of the notes do not. */
 .gate-note.health .gate-dot { background: var(--warm); }
 .gate-note.health { color: var(--warm); }
+
+/* A turnover figure without its window is two different numbers wearing one
+   label. The window travels with the number. */
+.stat-window { text-transform: none; letter-spacing: 0; opacity: 0.75; }

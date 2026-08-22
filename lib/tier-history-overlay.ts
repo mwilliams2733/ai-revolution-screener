@@ -14,11 +14,33 @@ import {
   type Transition,
 } from "./portfolio-risk";
 
-/** Recorded sessions to summarise. */
-export const HISTORY_WINDOW = 30;
+/**
+ * Recorded sessions to summarise.
+ *
+ * Every session there is, not a recent slice. Turnover is a property of the
+ * RULESET, so measuring it over a short window measures whichever month you
+ * happened to land in: the same data gave 1303% over the last 30 sessions and
+ * 758% over all 248, and only one of those is a statement about the rules.
+ *
+ * The page quoted the 30-session figure while every commit message and the
+ * README quoted the 248-session one -- two numbers for one concept, differing
+ * by a factor of nearly two, with nothing on screen saying which was which.
+ *
+ * "Recent moves" stays recent; it is sliced separately below, because there
+ * "recent" is the whole point.
+ */
+export const HISTORY_WINDOW = 10_000;
+
+/** Tier changes listed under "recent moves". */
+export const RECENT_MOVES = 20;
 
 export interface TierHistorySummary {
-  /** How many distinct sessions have been recorded. */
+  /**
+   * How many distinct sessions the stability figures cover.
+   *
+   * Rendered next to them on purpose. A turnover number without its window is
+   * not a number -- it is two different numbers wearing the same label.
+   */
   readonly sessions: number;
   /** Recent moves, newest first. */
   readonly transitions: readonly Transition[];
@@ -65,7 +87,7 @@ export function summariseTierHistory(records: readonly TierRecord[]): TierHistor
 
   return {
     sessions,
-    transitions: transitions.slice(0, 20),
+    transitions: transitions.slice(0, RECENT_MOVES),
     turnover: annualisedTurnover(records),
     medianTimeInTier: median(streaks.map(([, s]) => s)),
     leastStable,

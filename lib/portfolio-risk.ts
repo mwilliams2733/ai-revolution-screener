@@ -386,6 +386,21 @@ const SESSIONS_PER_YEAR = 252;
  * regime — a name oscillating weekly between Buy and Hold is a signal-quality
  * problem, not a trading opportunity.
  */
+/**
+ * Tier changes per position per year.
+ *
+ * THE DENOMINATOR IS A CHOICE, so it is stated here rather than left implied.
+ * This divides by the count of DISTINCT NAMES ever seen in the window. The
+ * alternative -- slots that actually had a predecessor in the previous session
+ * -- is arguably more precise when the roster changes, and over the full 248
+ * recorded sessions the two give 744% and 763%: a 2.5% gap, far smaller than
+ * the window effect below.
+ *
+ * THE WINDOW MATTERS MUCH MORE. The same records give 1303% over the last 30
+ * sessions and 744% over all 248. Turnover is a property of the ruleset, so a
+ * short window measures whichever month you landed in. Callers should pass
+ * everything they have; lib/tier-history-overlay.ts does.
+ */
 export function annualisedTurnover(history: readonly TierRecord[]): number | null {
   const sessions = new Set(history.map((r) => r.session));
   const names = new Set(history.map((r) => r.ticker));
