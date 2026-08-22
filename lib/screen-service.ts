@@ -55,21 +55,32 @@ export interface VetoedRow extends ScreenRow {
  * the current state of this deployment. The fallback is explicit and reported
  * rather than silent, so the UI can say which average it used.
  */
-async function loadHistory(): Promise<Map<string, number[]>> {
+/**
+ * Loader failures must not look like "no database".
+ *
+ * A swallowed error here previously made every row fall back to the proxy while
+ * the audit reported "needs the backfill" -- which was false, the backfill had
+ * run. Failures are recorded and surfaced in meta.warnings instead.
+ */
+const loadWarnings: string[] = [];
+
+async function loadHistory(tickers: readonly string[]): Promise<Map<string, number[]>> {
   if (!dbConfigured()) return new Map();
   try {
-    return await loadCloseHistory(MA_WINDOW);
-  } catch {
+    return await loadCloseHistory(MA_WINDOW, tickers);
+  } catch (e) {
+    loadWarnings.push(`close history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
 }
 
 /** Close, high and low for the trend family. Empty without a database. */
-async function loadTrendBars(): Promise<Map<string, TrendBar[]>> {
+async function loadTrendBars(tickers: readonly string[]): Promise<Map<string, TrendBar[]>> {
   if (!dbConfigured()) return new Map();
   try {
-    return await loadTrendHistory(Math.max(TREND_MIN_HISTORY, 252));
-  } catch {
+    return await loadTrendHistory(Math.max(TREND_MIN_HISTORY, 252), tickers);
+  } catch (e) {
+    loadWarnings.push(`trend history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
 }
@@ -79,7 +90,8 @@ async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
   if (!dbConfigured()) return new Map();
   try {
     return await loadVolumeHistory(VOLUME_WINDOW + 1);
-  } catch {
+  } catch (e) {
+    loadWarnings.push(`volume history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
 }
@@ -128,6 +140,8 @@ export interface ScreenPayload {
     /** Rows with enough history for a full 8-criterion trend template. */
     readonly trendScored: number;
     readonly trendMinHistory: number;
+    /** Data-loading failures, so a broken query never looks like missing data. */
+    readonly warnings: readonly string[];
   };
 }
 
@@ -373,7 +387,9 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   // True moving averages FIRST: they change vsMa, which re-decides the tier,
   // which decides who the fundamental gate and the cap even consider.
-  const history = await loadHistory();
+  loadWarnings.length = 0;
+  const themedTickers = themed.map((r) => r.ticker);
+  const history = await loadHistory(themedTickers);
   const trended = applyTrueMa(themed, history);
 
   // Fundamental overlay: tighten Strong Buy without touching the momentum core.
@@ -390,7 +406,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   const withVolume = applyVolume(ranked, limited, volumeBars);
 
   // Trend template and stage: per-ticker, and null without true averages.
-  const trendBars = await loadTrendBars();
+  const trendBars = await loadTrendBars(themedTickers);
   const withTrend = applyTrend(withVolume, trendBars);
 
   const priced: PricedRow[] = withTrend.map((r) => ({
@@ -426,6 +442,7 @@ async function computeScreen(): Promise<ScreenPayload> {
       volumeWindow: VOLUME_WINDOW,
       trendScored: trendScoredCount(withTrend),
       trendMinHistory: TREND_MIN_HISTORY,
+      warnings: [...loadWarnings],
     },
   };
 }

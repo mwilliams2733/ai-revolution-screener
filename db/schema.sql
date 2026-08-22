@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS daily_bars (
   session  DATE             NOT NULL,
   ticker   TEXT             NOT NULL,
   open     DOUBLE PRECISION,
-  -- Intraday extremes. Needed for the 52-week high/low in the trend template;
-  -- they cannot be derived from closes, and grouped-daily returns them free.
+  -- Intraday extremes, needed for the 52-week high/low in the trend template.
+  -- They cannot be derived from closes, and grouped-daily returns them free.
   high     DOUBLE PRECISION,
   low      DOUBLE PRECISION,
   close    DOUBLE PRECISION NOT NULL,

@@ -109,7 +109,11 @@ export async function insertBars(session: string, bars: readonly PolygonBar[]): 
  * trips to build moving averages would be the same per-ticker mistake the
  * grouped-daily endpoint exists to avoid.
  */
-export async function loadCloseHistory(window: number): Promise<Map<string, number[]>> {
+export async function loadCloseHistory(
+  window: number,
+  tickers: readonly string[],
+): Promise<Map<string, number[]>> {
+  if (tickers.length === 0) return new Map();
   const sql = client();
   const rows = (await sql`
     WITH recent AS (
@@ -118,6 +122,7 @@ export async function loadCloseHistory(window: number): Promise<Map<string, numb
     SELECT b.ticker, b.session::text AS session, b.close
     FROM daily_bars b
     JOIN recent r ON r.session = b.session
+    WHERE b.ticker = ANY(${[...tickers]}::text[])
     ORDER BY b.ticker, b.session ASC
   `) as { ticker: string; session: string; close: number }[];
 
@@ -133,9 +138,10 @@ export async function loadCloseHistory(window: number): Promise<Map<string, numb
 /**
  * Close and volume per ticker over the last `window` stored sessions.
  *
- * One query for the whole universe, same reasoning as loadCloseHistory: the
- * volume family needs 50 bars for ~2,200 names, and doing that per ticker would
- * be the per-ticker mistake grouped-daily exists to avoid.
+ * One query, but SCOPED to the tickers that need it. Neon's HTTP driver caps a
+ * response at 64MB, and 200 sessions across ~12,000 tickers is 2.4M rows, which
+ * returns HTTP 507. Scoping is also correct on its own terms: only the themed
+ * rows are ever scored.
  */
 export async function loadVolumeHistory(
   window: number,
@@ -169,7 +175,9 @@ export async function loadVolumeHistory(
  */
 export async function loadTrendHistory(
   window: number,
+  tickers: readonly string[],
 ): Promise<Map<string, { close: number; high: number; low: number }[]>> {
+  if (tickers.length === 0) return new Map();
   const sql = client();
   const rows = (await sql`
     WITH recent AS (
@@ -179,6 +187,7 @@ export async function loadTrendHistory(
     FROM daily_bars b
     JOIN recent r ON r.session = b.session
     WHERE b.high IS NOT NULL AND b.low IS NOT NULL
+      AND b.ticker = ANY(${[...tickers]}::text[])
     ORDER BY b.ticker, b.session ASC
   `) as { ticker: string; close: number; high: number; low: number }[];
 

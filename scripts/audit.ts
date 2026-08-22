@@ -122,6 +122,18 @@ async function main(): Promise<void> {
     true,
   );
 
+  // A data-loading failure must fail the build. Previously a swallowed error
+  // made every row fall back to the proxy while the audit reported "needs the
+  // backfill" -- which was false. A broken query must never look like absent
+  // data.
+  assert(
+    "history loaded without errors",
+    screen.meta.warnings.length === 0,
+    screen.meta.warnings.length === 0
+      ? "no loader warnings"
+      : screen.meta.warnings.join(" | "),
+  );
+
   // Soft: these depend on the backfill and are expected to be zero until Neon
   // exists. Reported so the transition is visible rather than assumed.
   assert(

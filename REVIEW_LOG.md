@@ -7,6 +7,44 @@ Run `npm run audit` to re-check everything below mechanically.
 
 ---
 
+## 2026-08-22 — database connected, backfill run
+
+Neon Postgres provisioned. Schema applied, 250 sessions backfilled: **2.98M
+bars, 11,906 tickers (6,584 delisted, kept for backtest integrity)**, 7.5
+minutes.
+
+### Bug found only once real data existed
+
+**Neon's HTTP driver caps a response at 64MB.** `loadCloseHistory(200)` asked
+for 200 sessions across ~12,000 tickers -- 2.4M rows -- and got HTTP 507. The
+loader caught it and returned an empty map, so every row fell back to the
+five-point proxy while the audit reported "needs the backfill". The backfill had
+run. A hard failure was indistinguishable from absent data.
+
+Two fixes: history queries are now scoped to the tickers that need them (only
+the ~104 themed rows are ever scored, so fetching 12,000 was ~99% waste), and
+loader failures are recorded in `meta.warnings` and asserted by the audit rather
+than swallowed.
+
+### The metrics, now that they compute
+
+- **Effective bets: 16.8 by weight, 2.9 correlation-adjusted.** A 19-name book
+  is about three independent bets. This is the number the position count could
+  never show.
+- **LITE/AAOI correlate at 0.85** -- the exact pair METRICS_SPEC predicted.
+- **True moving averages changed the tiers**: gate demotions went 3 to 4, and
+  `vsMa` moved materially (AEHR 60.7% to 70.6%).
+- **Stage 3 and 4 names do NOT cleanly cluster in Hold**: 48 late-stage names,
+  only 27 of them Hold. CIEN is Stage 3 (topping) while ranked 9th at RS 96.
+  The spec said if they do not cluster, that is a finding. It is one: the tier
+  rule reads price-versus-average as one bit and cannot see a rolling-over
+  average.
+- **Accumulation grades are mostly C and below.** AAOI sits at RS 98 with a
+  0.73 up/down ratio and an E grade -- rising on distribution, and correctly
+  flagged unconfirmed.
+
+---
+
 ## 2026-08-21 — first full review (phases 0-5)
 
 Baseline at start: 98 tests, no database, screen running live off Polygon.
