@@ -714,3 +714,26 @@ tr.vetoed .rail-fill { background: var(--veto); }
   border-radius: var(--radius);
 }
 .risk-note { margin: 7px 0 0; font-size: 0.66rem; color: var(--muted); line-height: 1.5; }
+
+/* Column legend, collapsed by default so it costs no space until wanted. */
+.legend { margin-top: 18px; }
+.legend summary {
+  cursor: pointer;
+  font-size: 0.74rem;
+  color: var(--muted);
+  padding: 8px 0;
+}
+.legend summary:hover { color: var(--ink); }
+.legend-list {
+  display: grid;
+  gap: 9px;
+  margin: 6px 0 0;
+  padding: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.legend-list dt { font-weight: 600; }
+.legend-list dd { margin: 1px 0 0; color: var(--muted); }

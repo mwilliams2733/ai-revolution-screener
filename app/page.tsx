@@ -178,6 +178,21 @@ export default async function Page() {
         sessions, {cached} served from cache. Screen built in{" "}
         {(data.meta.elapsedMs / 1000).toFixed(1)}s.
       </p>
+
+      <details className="legend">
+        <summary>What do the columns mean?</summary>
+        <dl className="legend-list">
+          <div><dt>RS</dt><dd>Relative-strength percentile against every liquid US stock (~2,200), not against the theme. 40% 3-month, 30% 6-month, 30% 12-month.</dd></div>
+          <div><dt>The rail</dt><dd>RS drawn 0–100 with ticks at the tier cutoffs, 55 and 80. Cool means above the 200-day average, warm means below.</dd></div>
+          <div><dt>Day / Wk / Mo</dt><dd>Close against the previous close, 5 sessions ago and 21 sessions ago. Trading sessions, not calendar days.</dd></div>
+          <div><dt>vs MA</dt><dd>Distance from the 200-day moving average.</dd></div>
+          <div><dt>TT</dt><dd>Trend template out of 8. Blank until 222 sessions of history exist — a partial score would read as failure.</dd></div>
+          <div><dt>Stage</dt><dd>Weinstein stage: 1 base, 2 advance, 3 topping, 4 decline, T transitional.</dd></div>
+          <div><dt>U/D</dt><dd>Up-day volume over down-day volume across 50 sessions. Above 1.0 is accumulation.</dd></div>
+          <div><dt>Acc</dt><dd>Accumulation grade A–E, ranked across the full universe.</dd></div>
+          <div><dt>Held out</dt><dd>Excluded on purpose, with the reason attached. Never silently dropped.</dd></div>
+        </dl>
+      </details>
     </main>
   );
 }

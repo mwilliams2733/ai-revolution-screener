@@ -26,6 +26,7 @@ import {
 } from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
+import { periodChanges, type PeriodChanges } from "./period-change";
 import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
@@ -101,6 +102,8 @@ export const STRONG_BUY_LIMIT = 10;
 
 /** A screen row carrying the day's open alongside the close. */
 export interface PricedRow extends CappedRow, VolumeFields, TrendFields {
+  /** Day, week and month price changes. */
+  readonly changes: PeriodChanges;
   /** Whether vsMa came from a real rolling mean or the five-point proxy. */
   readonly maSource: MaSource;
   /** Session open. Null when the source did not carry one. */
@@ -409,10 +412,12 @@ async function computeScreen(): Promise<ScreenPayload> {
   const trendBars = await loadTrendBars(themedTickers);
   const withTrend = applyTrend(withVolume, trendBars);
 
-  const priced: PricedRow[] = withTrend.map((r) => ({
-    ...r,
-    open: opens.get(r.ticker) ?? null,
-  }));
+  const priced: PricedRow[] = withTrend.map((r) => {
+    const open = opens.get(r.ticker) ?? null;
+    // Reuses the close history already loaded for the moving averages, so the
+    // short-horizon changes cost no additional query.
+    return { ...r, open, changes: periodChanges(history.get(r.ticker) ?? [], open) };
+  });
 
   return {
     asOf: dates.now as string,

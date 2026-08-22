@@ -112,6 +112,36 @@ function Figures({ row }: { row: Row }) {
         <span className="fig-k">vs MA </span>
         <span className={`fig-v num ${signClass(row.vsMa)}`}>{pct(row.vsMa)}</span>
       </span>
+      {isPriced(row) && (
+        <>
+          <span>
+            <span className="fig-k">Open </span>
+            <span className="fig-v num">{num(row.open, 2)}</span>
+          </span>
+          <span>
+            <span className="fig-k">Close </span>
+            <span className="fig-v num">{num(row.price, 2)}</span>
+          </span>
+          <span>
+            <span className="fig-k">Day </span>
+            <span className={`fig-v num ${signClass(row.changes.day)}`}>
+              {pct(row.changes.day)}
+            </span>
+          </span>
+          <span>
+            <span className="fig-k">Wk </span>
+            <span className={`fig-v num ${signClass(row.changes.week)}`}>
+              {pct(row.changes.week, 0)}
+            </span>
+          </span>
+          <span>
+            <span className="fig-k">Mo </span>
+            <span className={`fig-v num ${signClass(row.changes.month)}`}>
+              {pct(row.changes.month, 0)}
+            </span>
+          </span>
+        </>
+      )}
       <span>
         <span className="fig-k">3M </span>
         <span className={`fig-v num ${signClass(row.r3m)}`}>{pct(row.r3m, 0)}</span>
@@ -161,16 +191,6 @@ function Figures({ row }: { row: Row }) {
           </span>
         </span>
       )}
-      {isPriced(row) && row.open != null && (
-        <span>
-          <span className="fig-k">O/C </span>
-          <span className="fig-v num">
-            {row.open.toFixed(2)}
-            {" / "}
-            <span className={row.price >= row.open ? "pos" : "neg"}>{row.price.toFixed(2)}</span>
-          </span>
-        </span>
-      )}
     </div>
   );
 }
@@ -193,9 +213,10 @@ function RowDetail({ row }: { row: Row }) {
             <dd>{sectorLabel(row.sector)}</dd>
           </div>
           <div>
-            <dt>Open / close</dt>
-            <dd className="num">
-              {priced?.open != null ? `${priced.open.toFixed(2)} / ${row.price.toFixed(2)}` : MISSING}
+            <dt>Close vs open</dt>
+            <dd className={`num ${signClass(priced?.changes.intraday ?? null)}`}>
+              {pct(priced?.changes.intraday ?? null)}
+              <span className="detail-note"> intraday</span>
             </dd>
           </div>
           <div>
@@ -414,7 +435,8 @@ function Header({
 const isSortKey = (v: unknown): v is SortKey =>
   typeof v === "string" && SORTS.some((s) => s.key === v);
 const isDir = (v: unknown): v is 1 | -1 => v === 1 || v === -1;
-const isStr = (v: unknown): v is string => typeof v === "string";
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string");
 const isTierFilter = (v: unknown): v is TierFilter =>
   typeof v === "string" && (TIER_FILTERS as string[]).includes(v);
 
@@ -422,7 +444,13 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
   // Persisted so a reload does not discard the view. (U4)
   const [sort, setSort] = usePersistedState<SortKey>("screen.sort", "rsPct", isSortKey);
   const [dir, setDir] = usePersistedState<1 | -1>("screen.dir", -1, isDir);
-  const [sector, setSector] = usePersistedState<string>("screen.sector", "all", isStr);
+  // Empty array means every sector. Persisted as an array so a reload keeps
+  // the exact selection rather than collapsing to "all".
+  const [sectors, setSectors] = usePersistedState<string[]>(
+    "screen.sectors",
+    [],
+    isStringArray,
+  );
   const [tierFilter, setTierFilter] = usePersistedState<TierFilter>(
     "screen.tier",
     "all",
@@ -439,10 +467,13 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
       return next;
     });
 
-  const sectors = useMemo(
+  const allSectors = useMemo(
     () => [...new Set(data.themed.map((r) => r.sector))].sort(),
     [data.themed],
   );
+
+  const toggleSector = (s: string) =>
+    setSectors(sectors.includes(s) ? sectors.filter((x) => x !== s) : [...sectors, s]);
 
   function onSort(k: SortKey) {
     if (k === sort) setDir(dir === 1 ? -1 : 1);
@@ -454,7 +485,7 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
 
   const rows = useMemo(() => {
     const base = data.themed
-      .filter((r) => sector === "all" || r.sector === sector)
+      .filter((r) => sectors.length === 0 || sectors.includes(r.sector))
       .filter((r) => tierFilter === "all" || r.tier === tierFilter);
     const cmp = (a: Row, b: Row) => {
       if (sort === "ticker") return a.ticker.localeCompare(b.ticker) * dir;
@@ -463,11 +494,11 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
       return (av - bv) * dir;
     };
     return [...base].sort(cmp);
-  }, [data.themed, sector, tierFilter, sort, dir]);
+  }, [data.themed, sectors, tierFilter, sort, dir]);
 
   const vetoed = useMemo(
-    () => data.vetoed.filter((r) => sector === "all" || r.sector === sector),
-    [data.vetoed, sector],
+    () => data.vetoed.filter((r) => sectors.length === 0 || sectors.includes(r.sector)),
+    [data.vetoed, sectors],
   );
 
   return (
@@ -498,19 +529,29 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
           </button>
         ))}
 
-        <select
+      </div>
+
+      <div className="controls">
+        <span className="ctl-label">
+          Sectors{sectors.length > 0 ? ` (${sectors.length})` : ""}
+        </span>
+        <button
           className="chip"
-          value={sector}
-          onChange={(e) => setSector(e.target.value)}
-          aria-label="Filter by sector"
+          aria-pressed={sectors.length === 0}
+          onClick={() => setSectors([])}
         >
-          <option value="all">All sectors</option>
-          {sectors.map((s) => (
-            <option key={s} value={s}>
-              {sectorLabel(s)}
-            </option>
-          ))}
-        </select>
+          All
+        </button>
+        {allSectors.map((s) => (
+          <button
+            key={s}
+            className="chip"
+            aria-pressed={sectors.includes(s)}
+            onClick={() => toggleSector(s)}
+          >
+            {sectorLabel(s)}
+          </button>
+        ))}
       </div>
 
       <div className="panel">
@@ -542,7 +583,7 @@ export default function ScreenTable({ data }: { data: ScreenPayload }) {
           <p className="empty">
             {tierFilter === "all"
               ? "No names in this sector cleared the liquidity gate today."
-              : `No ${tierFilter} names${sector === "all" ? "" : " in this sector"} today.`}
+              : `No ${tierFilter} names${sectors.length === 0 ? "" : " in the selected sectors"} today.`}
           </p>
         )}
       </div>
