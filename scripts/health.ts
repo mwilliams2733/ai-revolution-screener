@@ -42,11 +42,39 @@ const REVENUE_ONLY = has("revenue");
 const THROTTLE_MS = 120;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A concept, and the namespace it lives in.
+ *
+ * Foreign private issuers file 20-F under IFRS and tag against `ifrs-full`,
+ * not `us-gaap`. Looking only in `us-gaap` returned nothing for TSM, SAP and
+ * NVO -- which then read as "unknown" rather than as companies we had declined
+ * to measure. ASML and ARM, despite being ADRs, file US GAAP and need none of
+ * this.
+ */
+interface TagRef {
+  readonly ns: string;
+  readonly tag: string;
+}
+
+const SHARES_TAGS: TagRef[] = [
+  { ns: "dei", tag: "EntityCommonStockSharesOutstanding" },
+  { ns: "ifrs-full", tag: "NumberOfSharesOutstanding" },
+  { ns: "ifrs-full", tag: "NumberOfSharesIssuedAndFullyPaid" },
+  { ns: "us-gaap", tag: "CommonStockSharesOutstanding" },
+];
+
+const OCF_TAGS: TagRef[] = [
+  { ns: "us-gaap", tag: "NetCashProvidedByUsedInOperatingActivities" },
+  { ns: "us-gaap", tag: "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations" },
+  { ns: "ifrs-full", tag: "CashFlowsFromUsedInOperatingActivities" },
+];
+
 /** Cash the company can actually spend, not just the line called "cash". */
-const CASH_TAGS = [
-  "CashAndCashEquivalentsAtCarryingValue",
-  "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
-] as const;
+const CASH_TAGS: TagRef[] = [
+  { ns: "us-gaap", tag: "CashAndCashEquivalentsAtCarryingValue" },
+  { ns: "us-gaap", tag: "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents" },
+  { ns: "ifrs-full", tag: "CashAndCashEquivalents" },
+];
 
 /**
  * Short-term investments, added to cash.
@@ -55,49 +83,68 @@ const CASH_TAGS = [
  * these understates runway several-fold and would condemn well-capitalised
  * companies -- the exact opposite of what this guardrail is for.
  */
-const INVESTMENT_TAGS = [
-  "ShortTermInvestments",
-  "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
-  "MarketableSecuritiesCurrent",
-  "OtherShortTermInvestments",
-] as const;
+const INVESTMENT_TAGS: TagRef[] = [
+  { ns: "us-gaap", tag: "ShortTermInvestments" },
+  { ns: "us-gaap", tag: "AvailableForSaleSecuritiesDebtSecuritiesCurrent" },
+  { ns: "us-gaap", tag: "MarketableSecuritiesCurrent" },
+  { ns: "us-gaap", tag: "OtherShortTermInvestments" },
+  { ns: "ifrs-full", tag: "OtherCurrentFinancialAssets" },
+];
 
 /** Filers migrate revenue concepts; ASC 606 moved it off `Revenues`. */
-const REVENUE_TAGS = [
-  "RevenueFromContractWithCustomerExcludingAssessedTax",
-  "RevenueFromContractWithCustomerIncludingAssessedTax",
-  "Revenues",
-  "SalesRevenueNet",
-] as const;
+const REVENUE_TAGS: TagRef[] = [
+  { ns: "us-gaap", tag: "RevenueFromContractWithCustomerExcludingAssessedTax" },
+  { ns: "us-gaap", tag: "RevenueFromContractWithCustomerIncludingAssessedTax" },
+  { ns: "us-gaap", tag: "Revenues" },
+  { ns: "us-gaap", tag: "SalesRevenueNet" },
+  { ns: "ifrs-full", tag: "Revenue" },
+  { ns: "ifrs-full", tag: "RevenueFromContractsWithCustomers" },
+];
 
 type Facts = { facts?: Record<string, Record<string, { units?: Record<string, FactPoint[]> }>> };
 
-function pointsFor(f: Facts, ns: string, tags: readonly string[], unit: string): FactPoint[] {
-  const space = f.facts?.[ns];
-  if (!space) return [];
-  for (const tag of tags) {
-    const pts = space[tag]?.units?.[unit];
-    if (pts && pts.length) return pts;
+/**
+ * Points for the first tag that has any, together with the unit they are in.
+ *
+ * A US filer reports USD. TSM reports TWD, SAP EUR, NVO DKK. The unit is
+ * returned rather than assumed so the caller can keep one company's figures in
+ * ONE currency -- runway is cash over burn, which is currency-free only if both
+ * sides are the same currency, and silently mixing TWD cash with USD burn would
+ * produce a number wrong by a factor of thirty.
+ */
+function factsIn(
+  f: Facts,
+  refs: readonly TagRef[],
+  preferUnit?: string,
+): { points: FactPoint[]; unit: string } | null {
+  for (const ref of refs) {
+    const units = f.facts?.[ref.ns]?.[ref.tag]?.units;
+    if (!units) continue;
+    if (preferUnit && units[preferUnit]?.length) {
+      return { points: units[preferUnit], unit: preferUnit };
+    }
+    if (preferUnit) continue;
+    // No preference yet: take USD when offered, else whichever unit carries
+    // the most history.
+    if (units.USD?.length) return { points: units.USD, unit: "USD" };
+    const best = Object.entries(units).sort((a, b) => b[1].length - a[1].length)[0];
+    if (best && best[1].length) return { points: best[1], unit: best[0] };
   }
-  return [];
+  return null;
 }
 
-/** Latest value of whichever tag in `tags` the filer uses, at-or-near `on`. */
-function latestNear(f: Facts, tags: readonly string[], on: string | null): number {
-  let total = 0;
-  for (const tag of tags) {
-    const pts = f.facts?.["us-gaap"]?.[tag]?.units?.USD;
+/** Latest balance-sheet value across `refs`, all in one currency and one date. */
+function latestIn(f: Facts, refs: readonly TagRef[], unit: string, on: string | null): number {
+  for (const ref of refs) {
+    const pts = f.facts?.[ref.ns]?.[ref.tag]?.units?.[unit];
     if (!pts?.length) continue;
     const sorted = [...pts].sort((a, b) => Date.parse(a.end) - Date.parse(b.end));
     const last = sorted[sorted.length - 1];
     // Only combine figures from the same balance-sheet date; adding cash from
     // one quarter to investments from another is not a balance sheet.
-    if (on == null || last.end === on) {
-      total += last.val;
-      break;
-    }
+    if (on == null || last.end === on) return last.val;
   }
-  return total;
+  return 0;
 }
 
 interface Row {
@@ -167,10 +214,14 @@ async function main(): Promise<void> {
         );
         if (res.ok) {
           const f = (await res.json()) as Facts;
-          const pts = pointsFor(f, "us-gaap", REVENUE_TAGS, "USD");
+          // Revenue must be in the SAME currency as the burn it will be
+          // compared against, so the reporting currency is fixed by the cash
+          // flow statement first and revenue is read in that unit.
+          const ocfUnit = factsIn(f, OCF_TAGS)?.unit ?? "USD";
+          const rev = factsIn(f, REVENUE_TAGS, ocfUnit) ?? factsIn(f, REVENUE_TAGS);
           // Same trailing-twelve-month machinery as the burn; revenue is
           // reported cumulatively in exactly the same way.
-          const ttm = trailingBurn(pts);
+          const ttm = rev ? trailingBurn(rev.points) : null;
           batch.push({ ticker: b.ticker, revenue: ttm?.annual ?? 0 });
         } else {
           batch.push({ ticker: b.ticker, revenue: 0 });
@@ -242,19 +293,20 @@ revenue fetched for ${n} companies
           failed += 1;
         } else {
           const f = (await res.json()) as Facts;
-          const shares = pointsFor(f, "dei", ["EntityCommonStockSharesOutstanding"], "shares");
-          const ocf = pointsFor(
-            f,
-            "us-gaap",
-            ["NetCashProvidedByUsedInOperatingActivities",
-             "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"],
-            "USD",
-          );
-          const cashPts = pointsFor(f, "us-gaap", CASH_TAGS, "USD");
-          const on = cashPts.length
-            ? [...cashPts].sort((a, b) => Date.parse(a.end) - Date.parse(b.end)).slice(-1)[0].end
+          const shares = factsIn(f, SHARES_TAGS, "shares")?.points ?? [];
+          const ocfFacts = factsIn(f, OCF_TAGS);
+          const ocf = ocfFacts?.points ?? [];
+          // One company, one currency. The cash flow statement sets it and the
+          // balance sheet follows; a TWD cash figure over a USD burn would be
+          // wrong by a factor of thirty and look entirely plausible.
+          const unit = ocfFacts?.unit ?? "USD";
+          const cashFacts = factsIn(f, CASH_TAGS, unit);
+          const on = cashFacts?.points.length
+            ? [...cashFacts.points].sort((a, b) => Date.parse(a.end) - Date.parse(b.end)).slice(-1)[0].end
             : null;
-          const cash = on == null ? null : latestNear(f, CASH_TAGS, on) + latestNear(f, INVESTMENT_TAGS, on);
+          const cash = on == null
+            ? null
+            : latestIn(f, CASH_TAGS, unit, on) + latestIn(f, INVESTMENT_TAGS, unit, on);
           // Keep only what the maths needs: the last three years of points.
           const cut = Date.now() - 3 * 365 * 86_400_000;
           const recent = (ps: FactPoint[]) => ps.filter((p) => Date.parse(p.end) >= cut);
