@@ -148,6 +148,53 @@ listing what moved, downgrades first.
 
 ---
 
+## Does it work?
+
+Unknown, and now measured rather than assumed. `npm run backtest` scores the
+reconstructed tier history against forward returns.
+
+Over 248 replayed sessions (2025-08-27 to 2026-08-21), at a 21-session horizon:
+
+| | mean | annualised | t | n |
+|---|---|---|---|---|
+| Strong Buy | +9.02% | +181.9% | 1.46 | 11 |
+| Buy | +6.85% | +121.4% | 1.53 | 11 |
+| Hold | +3.72% | +55.0% | 1.20 | 11 |
+| whole theme, equal weight | +5.24% | +84.5% | 1.48 | 11 |
+| SPY | +1.37% | +17.8% | 0.88 | 11 |
+
+**The tier ordering is monotone** — Strong Buy above Buy above Hold — at every
+horizon tested, for both the final tier and the price-only momentum tier. Six
+out of six. That consistency is the encouraging part.
+
+**Nothing is statistically significant, and the sample cannot make it so.**
+`n` is the number of *non-overlapping* windows, because a 21-session return
+measured daily shares 20 of its 21 days with the next one. Eleven windows is
+what one replayed year actually contains. Worse, the ~104 names inside a window
+are one theme moving together — the live screen reports 19 holdings behaving
+like 2.9 independent bets — so even eleven is generous. The script prints
+`UNDERPOWERED` rather than a t-statistic wherever that is the honest answer.
+
+Three further readings worth knowing:
+
+- **Most of the return is the theme, not the tier.** Owning all 104 names
+  equally annualises at +84.5% against SPY's +17.8%. Strong Buy adds +3.78% per
+  21 sessions on top of that (t = 0.91) — real if it holds up, but a fraction
+  of what the theme itself contributed.
+- **The overlays have not been shown to improve selection.** The price-only
+  momentum tier returns +8.34% at 21 sessions against the fully-overlaid
+  +9.02%. The final tier's Strong Buy bucket averages 10.0 names against the
+  momentum tier's 40.5, so it is four times as concentrated for 0.68 points of
+  extra mean return. On eleven windows that difference is noise.
+- **Every bias in the reconstruction favours the strategy**: today's theme map
+  applied to the whole history, a universe pruned using today's knowledge of
+  which names stayed liquid, and no fundamental gate. A ruleset that could not
+  beat its benchmark even with that help would be dead; clearing it this way
+  proves much less.
+
+No transaction costs are modelled. At 758% annualised turnover that omission is
+not small.
+
 ## Known quirks, deliberately left
 
 - **Ten Strong Buys at 7.43% each is a 74.3% sleeve**, not the published 52%.
@@ -162,6 +209,8 @@ listing what moved, downgrades first.
 npm run dev            # local, no Access gate
 npm run audit          # typecheck + tests + live data integrity
 npm run backfill       # one-off history load, safe to re-run
+npm run replay         # rebuild tier_history from stored bars
+npm run backtest       # forward return by tier, with honest sample sizes
 ```
 
 `npm run audit` is the gate. It asserts the values that caught real bugs:
