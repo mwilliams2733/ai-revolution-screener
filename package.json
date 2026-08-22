@@ -14,6 +14,7 @@
     "verify:screen": "tsx --env-file=.env.local scripts/verify-screen.ts",
     "audit:data": "tsx --env-file-if-exists=.env.local scripts/audit.ts",
     "audit": "npm run typecheck && npm run test && npm run audit:data",
+    "sectors": "tsx --env-file=.env.local scripts/sectors.ts",
     "backtest": "tsx --env-file=.env.local scripts/backtest.ts",
     "replay": "tsx --env-file=.env.local scripts/replay-tiers.ts"
   },

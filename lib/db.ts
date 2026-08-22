@@ -7,6 +7,7 @@
  */
 
 import { neon } from "@neondatabase/serverless";
+import { classify, type SectorLabels } from "./sic";
 import type { Bar, BarsByTicker } from "./types";
 import type { PolygonBar, TickerRefLike } from "./db-types";
 
@@ -66,6 +67,23 @@ export async function tickerNames(): Promise<Map<string, string>> {
   const sql = client();
   const rows = (await sql`SELECT ticker, name FROM tickers`) as { ticker: string; name: string }[];
   return new Map(rows.map((r) => [r.ticker, r.name]));
+}
+
+/**
+ * SIC classification for every ticker that has one, as ticker -> labels.
+ *
+ * Only rows with a non-empty code are returned. A filer with no SIC and a
+ * ticker never fetched are both absent, and the caller renders both as "Other"
+ * -- the distinction matters to scripts/sectors.ts, which uses it to know what
+ * is left to do, and to nobody downstream of here.
+ */
+export async function tickerSectors(): Promise<Map<string, SectorLabels>> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, sic, sic_description FROM tickers
+    WHERE sic IS NOT NULL AND sic <> ''
+  `) as { ticker: string; sic: string; sic_description: string | null }[];
+  return new Map(rows.map((r) => [r.ticker, classify(r.sic, r.sic_description)]));
 }
 
 // ---------------------------------------------------------------------------

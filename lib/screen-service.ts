@@ -12,6 +12,7 @@ import {
   anchorDates,
   groupedDaily,
   referenceTickers,
+  SECURITY_TYPES,
   tradingCalendar,
 } from "./polygon";
 import { barsByTicker } from "./factors";
@@ -26,6 +27,7 @@ import {
   loadVolumeHistory,
   storedTradingSessions,
   tickerNames,
+  tickerSectors,
 } from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
@@ -48,6 +50,7 @@ import { capHeldCount, capStrongBuy, cappedCount, type CappedRow } from "./stron
 import { runScreen, DEFAULT_PARAMS } from "./index";
 import { exclusionReason, themeUniverse } from "./theme";
 import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots, Tier } from "./types";
+import { classify, type SectorLabels } from "./sic";
 import { isoDaysAgo } from "./dates";
 
 const ANCHOR_LABELS: readonly AnchorLabel[] = ["r1m", "r3m", "r6m", "r12m"] as const;
@@ -131,6 +134,38 @@ export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFi
   readonly open: number | null;
 }
 
+/**
+ * A ranked name from the FULL liquid universe, trimmed for transport.
+ *
+ * The themed rows carry ~30 fields each; at ~2,300 names that shape would be a
+ * multi-megabyte payload on a phone. These carry only what the leaders table
+ * renders and sorts on. Anything richer is a click away through the existing
+ * ticker lookup.
+ */
+export interface LeaderRow {
+  readonly ticker: string;
+  readonly name: string;
+  /**
+   * SIC sector, NOT the theme sector.
+   *
+   * Deliberately a separate field from ScreenRow.sector: that one names a slice
+   * of the hand-maintained AI CapEx map ("memory_storage"), this one classifies
+   * the whole market. Collapsing them into one field would make a filter mean
+   * two different things depending on which table you were looking at.
+   */
+  readonly sector: string;
+  readonly subsector: string;
+  readonly price: number;
+  readonly dollarVolume: number;
+  readonly r3m: number;
+  readonly r12m: number;
+  readonly rsPct: number | null;
+  readonly vsMa: number;
+  readonly tier: Tier | null;
+  /** True when the name is also in the AI CapEx theme map. */
+  readonly inTheme: boolean;
+}
+
 export interface ScreenPayload {
   readonly asOf: string;
   readonly anchors: Record<string, { date: string; bars: number; source: Source }>;
@@ -154,6 +189,17 @@ export interface ScreenPayload {
   /** Tier stability over the recorded nights. */
   readonly history: TierHistorySummary;
   readonly strongBuyLimit: number;
+  /**
+   * Every ranked name in the liquid universe, theme filter off.
+   *
+   * The percentiles here are the same ones the themed table shows -- ranking
+   * happens once, across everything, before any filter. So a sector view is a
+   * view of the SAME ranking, not a re-rank inside the sector, and an RS of 90
+   * means the same thing in both tables.
+   */
+  readonly leaders: readonly LeaderRow[];
+  /** How many leaders carry a real SIC classification rather than "Other". */
+  readonly leadersClassified: number;
   /** Theme names held out by the crowding veto, ranked, never silently dropped. */
   readonly vetoed: readonly VetoedRow[];
   readonly meta: {
@@ -298,6 +344,8 @@ async function fundamentalsForCandidates(
 interface Reference {
   readonly names: Map<string, string>;
   readonly ciks: Map<string, string>;
+  /** SIC labels for the full universe. Empty until scripts/sectors.ts runs. */
+  readonly sectors: Map<string, SectorLabels>;
   readonly source: Source;
 }
 
@@ -309,7 +357,11 @@ async function resolveReference(): Promise<Reference> {
     return referenceCache.value;
   }
 
-  const refs = await referenceTickers(true);
+  // Every security type the screen considers, not just common stock. Fetching
+  // CS alone excluded every ADR -- TSM, ASML and ARM among them -- from a
+  // screener whose whole subject is the AI supply chain.
+  const pages = await Promise.all(SECURITY_TYPES.map((t) => referenceTickers(true, {}, t)));
+  const refs = pages.flat();
   const names = new Map<string, string>();
   const ciks = new Map<string, string>();
   for (const r of refs) {
@@ -332,7 +384,19 @@ async function resolveReference(): Promise<Reference> {
     }
   }
 
-  const value: Reference = { names, ciks, source };
+  // SIC labels for the whole ranked universe, so the leaders view can be
+  // filtered by sector. Empty until scripts/sectors.ts has run; every
+  // unclassified name then renders as "Other" rather than disappearing.
+  let sectors = new Map<string, SectorLabels>();
+  if (dbConfigured()) {
+    try {
+      sectors = await tickerSectors();
+    } catch (e) {
+      loadWarnings.push(`sectors: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const value: Reference = { names, ciks, sectors, source };
   referenceCache = { at: Date.now(), value };
   return value;
 }
@@ -410,7 +474,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     anchors[label] = { date, bars: bars.size, source };
   }
 
-  const { names, ciks, source: namesSource } = await resolveReference();
+  const { names, ciks, sectors, source: namesSource } = await resolveReference();
 
   const { ranked, themed, portfolio, universeSize } = runScreen({
     snapshots: snapshots as unknown as Snapshots,
@@ -469,6 +533,8 @@ async function computeScreen(): Promise<ScreenPayload> {
   const volumeBars = await loadVolumeBars();
   const withVolume = applyVolume(ranked, limited, volumeBars);
 
+  const themeTickers = new Set(themed.map((r) => r.ticker));
+
   const priced: PricedRow[] = withVolume.map((r) => {
     const open = opens.get(r.ticker) ?? null;
     // Reuses the close history already loaded for the moving averages, so the
@@ -490,6 +556,24 @@ async function computeScreen(): Promise<ScreenPayload> {
     // and measuring 66 candidates would understate concentration badly.
     risk: portfolioRisk(portfolio, history),
     history: await loadHistorySummary(),
+    leaders: ranked.map((r): LeaderRow => {
+      const labels = sectors.get(r.ticker) ?? classify(null);
+      return {
+        ticker: r.ticker,
+        name: r.name,
+        sector: labels.sector,
+        subsector: labels.subsector,
+        price: r.price,
+        dollarVolume: r.dollarVolume,
+        r3m: r.r3m,
+        r12m: r.r12m,
+        rsPct: r.rsPct,
+        vsMa: r.vsMa,
+        tier: r.tier,
+        inTheme: themeTickers.has(r.ticker),
+      };
+    }),
+    leadersClassified: ranked.filter((r) => sectors.has(r.ticker)).length,
     capped: cappedCount(limited),
     capHeld: capHeldCount(limited),
     stageDemoted: stageDemotedCount(stageRuled),

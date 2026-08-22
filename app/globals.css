@@ -755,3 +755,225 @@ tr.vetoed .rail-fill { background: var(--veto); }
 .tr-date { color: var(--muted); font-size: 0.68rem; }
 .tr-ticker { font-size: 0.82rem; }
 .tr-move { color: var(--muted); }
+
+/* ---------------------------------------------------------------------------
+   Market leaders: the full ranked universe, filterable by sector.
+
+   Visually quieter than the theme table on purpose. That table is the decision
+   surface and keeps the saturated tier colours; this one is for navigation and
+   comparison, so it carries a single accent (the median-RS bar) and otherwise
+   stays in the neutral ramp. Two equally loud tables would leave nothing to
+   say which one you are meant to act on.
+   --------------------------------------------------------------------------- */
+
+.leaders { margin-top: 56px; }
+
+.leaders-head h2 {
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.leaders .note {
+  color: var(--muted);
+  font-size: 0.76rem;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--line);
+}
+
+/* ---- sector comparison ---- */
+
+.sector-stats {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin: 18px 0;
+}
+
+.ss-head,
+.ss-row {
+  display: grid;
+  /* The bar is a fifth column that collapses on narrow screens rather than
+     squeezing the numbers, which are the part you actually read. */
+  grid-template-columns: minmax(120px, 1.6fr) 56px 76px 76px minmax(0, 1.2fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  text-align: left;
+}
+
+.ss-head {
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+.ss-head span:not(:first-child) { text-align: right; }
+
+.ss-row {
+  width: 100%;
+  appearance: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.ss-row:first-of-type { border-top: 0; }
+.ss-row:hover { background: var(--surface-2); }
+.ss-row[aria-pressed="true"] { background: var(--surface-2); }
+.ss-row[aria-pressed="true"] .ss-name { color: var(--cool-strong); font-weight: 600; }
+.ss-row:focus-visible { outline: 2px solid var(--cool-mid); outline-offset: -2px; }
+.ss-row .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.ss-bar {
+  display: block;
+  height: 5px;
+  background: var(--rail-bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ss-fill { display: block; height: 100%; }
+
+@media (max-width: 560px) {
+  .ss-head, .ss-row { grid-template-columns: minmax(90px, 1.5fr) 44px 60px 60px; }
+  .ss-bar { display: none; }
+}
+
+.controls.sub { margin-top: -6px; }
+
+.result-count {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin: 0 0 10px;
+}
+
+/* ---- leaders table ---- */
+
+/* The global table rules above are unscoped ELEMENT selectors -- `thead
+   { display: none }` and `tbody tr { display: grid }` -- because the theme
+   table is a card list, not a grid. They therefore apply to every table on the
+   page, this one included, and turned each leaders row into a two-column
+   stack. Class selectors outrank element selectors, so the resets below win;
+   they are stated explicitly rather than left to inheritance so that changing
+   the theme table's card layout cannot silently reshape this one. */
+.leaders-tbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.leaders-tbl thead { display: table-header-group; }
+.leaders-tbl tbody tr {
+  display: table-row;
+  grid-template-columns: none;
+  gap: 0;
+  padding: 0;
+}
+
+/* Wide content scrolls inside its own box; the page body never scrolls
+   sideways. */
+.leaders .panel { overflow-x: auto; }
+
+.leaders-tbl th[scope="col"] {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.leaders-tbl th[scope="col"].num { text-align: right; }
+
+.leaders-tbl td,
+.leaders-tbl th[scope="row"] {
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+  text-align: left;
+  font-weight: 400;
+}
+.leaders-tbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leaders-tbl tbody tr:hover { background: var(--surface-2); }
+
+/* A theme name in the leaders table is the same row you can act on in the
+   table above. Marked, not recoloured: a second colour language here would
+   compete with the tier ramp. */
+.leaders-tbl tr.in-theme th[scope="row"] { box-shadow: inset 2px 0 0 var(--cool-mid); }
+.theme-dot { color: var(--cool-mid); font-size: 0.55rem; margin-left: 5px; vertical-align: middle; }
+
+.lt-ticker { font-weight: 600; letter-spacing: 0.01em; }
+.lt-name {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-sector { color: var(--ink); }
+.lt-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-rail {
+  display: block;
+  height: 3px;
+  width: 46px;
+  margin-left: auto;
+  margin-top: 4px;
+  background: var(--rail-bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.lt-rail-fill { display: block; height: 100%; background: var(--cool-mid); }
+
+.more {
+  display: block;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--cool-strong);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 12px;
+  cursor: pointer;
+}
+.more:hover { background: var(--surface-2); }
+.more:focus-visible { outline: 2px solid var(--cool-mid); outline-offset: -2px; }
+
+.empty { color: var(--muted); font-size: 0.82rem; padding: 22px 14px; margin: 0; }
+
+/* 720, not 560: measured at a 648px viewport the seven-column table overran
+   its panel by 81px. The panel scrolls rather than the page, so nothing was
+   broken -- but a table you have to drag sideways is a table you do not read.
+   Sector text goes first; the subsector line already carries the detail and
+   the chips above say which sector is selected. */
+@media (max-width: 720px) {
+  .leaders-tbl .lt-sector:not(.only-sub) { display: none; }
+  .leaders-tbl th[scope="col"]:nth-child(2) { display: none; }
+  /* 12M: the RS percentile already blends it, and 3M is the livelier signal. */
+  .leaders-tbl td:nth-child(5),
+  .leaders-tbl th[scope="col"]:nth-child(5) { display: none; }
+}
+
+@media (max-width: 460px) {
+  /* Phone: price and vs MA go too, leaving ticker, RS and 3M -- the three
+     things a ranking table exists to show. */
+  .leaders-tbl td:nth-child(6),
+  .leaders-tbl th[scope="col"]:nth-child(6) { display: none; }
+  .leaders-tbl .lt-name { max-width: 15ch; }
+}

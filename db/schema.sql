@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS tickers (
   -- Zero-padded to 10 digits, ready for SEC EDGAR companyfacts.
   cik               CHAR(10),
   active            BOOLEAN NOT NULL,
+  -- SEC SIC code and the filer's own description of it, from EDGAR
+  -- submissions. Populated by scripts/sectors.ts; see lib/sic.ts for what the
+  -- taxonomy is and is not good for. Null means never fetched, which is
+  -- different from a filer that has no code -- the backfill is resumable and
+  -- uses the null to know what is left.
+  sic               TEXT,
+  sic_description   TEXT,
   delisted_utc      TIMESTAMPTZ,
   first_seen        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()

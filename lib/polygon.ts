@@ -163,13 +163,24 @@ function toRef(r: RefRow, active: boolean): TickerRef | null {
  * backtest built on a live-only universe inherits survivorship bias. See
  * HANDOFF.md, "Survivorship bias will bite any backtest".
  */
+/**
+ * Security types the screen considers.
+ *
+ * CS alone was the original filter and it silently excluded every ADR. TSM,
+ * ASML and ARM -- three of the most important names in the AI supply chain --
+ * file as ADRC and were invisible to the screener while their bars sat in the
+ * database the whole time.
+ */
+export const SECURITY_TYPES = ["CS", "ADRC"] as const;
+
 export async function referenceTickers(
   active: boolean,
   opts: FetchOptions = {},
+  type: string = "CS",
 ): Promise<TickerRef[]> {
   const out: TickerRef[] = [];
   let path: string | null =
-    `/v3/reference/tickers?market=stocks&type=CS&active=${active}&limit=1000`;
+    `/v3/reference/tickers?market=stocks&type=${type}&active=${active}&limit=1000`;
 
   while (path) {
     const res: RefResponse = await get<RefResponse>(path, opts);
@@ -184,13 +195,17 @@ export async function referenceTickers(
 
 /** Both halves of the universe, delisted names included. */
 export async function fullUniverse(opts: FetchOptions = {}): Promise<TickerRef[]> {
-  const [live, dead] = await Promise.all([
-    referenceTickers(true, opts),
-    referenceTickers(false, opts),
-  ]);
+  const pages = await Promise.all(
+    SECURITY_TYPES.flatMap((type) => [
+      referenceTickers(true, opts, type),
+      referenceTickers(false, opts, type),
+    ]),
+  );
+  // Delisted first so a live row overwrites it on collision: a ticker reused
+  // by a new issuer must resolve to the company trading under it today.
   const m = new Map<string, TickerRef>();
-  for (const r of dead) m.set(r.ticker, r);
-  for (const r of live) m.set(r.ticker, r); // live wins on collision
+  for (let i = 1; i < pages.length; i += 2) for (const r of pages[i]) m.set(r.ticker, r);
+  for (let i = 0; i < pages.length; i += 2) for (const r of pages[i]) m.set(r.ticker, r);
   return [...m.values()];
 }
 
