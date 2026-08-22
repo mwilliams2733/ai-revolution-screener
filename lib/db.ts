@@ -351,6 +351,29 @@ export async function upsertTierHistory(
 }
 
 /**
+ * Tier history over the last `days` recorded sessions.
+ *
+ * Bounded by session count rather than by date so a gap in the cron does not
+ * silently shrink the window: thirty recorded sessions is thirty data points
+ * whether they span six weeks or six months.
+ */
+export async function loadTierHistory(days: number): Promise<
+  { session: string; ticker: string; tier: string | null }[]
+> {
+  const sql = client();
+  const rows = (await sql`
+    WITH recent AS (
+      SELECT DISTINCT session FROM tier_history ORDER BY session DESC LIMIT ${days}
+    )
+    SELECT h.session::text AS session, h.ticker, h.tier
+    FROM tier_history h
+    JOIN recent r ON r.session = h.session
+    ORDER BY h.session ASC, h.ticker ASC
+  `) as { session: string; ticker: string; tier: string | null }[];
+  return rows;
+}
+
+/**
  * The most recent stored screen BEFORE `session`, as ticker -> tier.
  *
  * Deliberately "the latest session that exists earlier", not "yesterday": after

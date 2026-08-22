@@ -168,6 +168,83 @@ export default async function Page() {
         )}
       </header>
 
+      <section className="history">
+        <div className="sec-head">
+          <h2 className="sec-title">Tier stability</h2>
+          <span className="sec-note">
+            {data.history.sessions === 0
+              ? "No nights recorded yet."
+              : `${data.history.sessions} night${data.history.sessions === 1 ? "" : "s"} recorded.`}
+          </span>
+        </div>
+
+        {data.history.sessions < 2 ? (
+          /* One night is a photograph, not a history. Saying so beats rendering
+             a zero that reads as "perfectly stable". */
+          <p className="lookup-note">
+            Turnover and time-in-tier need at least two recorded nights. The refresh runs at
+            22:00 UTC on weekdays, so these fill in from tomorrow.
+          </p>
+        ) : (
+          <>
+            <div className="risk">
+              <span>
+                <span className="stat-k">Annualised turnover</span>
+                <span className="stat-v num">
+                  {data.history.turnover != null
+                    ? `${Math.round(data.history.turnover * 100)}%`
+                    : "--"}
+                </span>
+              </span>
+              <span>
+                <span className="stat-k">Median time in tier</span>
+                <span className="stat-v num">
+                  {data.history.medianTimeInTier != null
+                    ? `${data.history.medianTimeInTier} sessions`
+                    : "--"}
+                </span>
+              </span>
+              <span>
+                <span className="stat-k">Recent moves</span>
+                <span className="stat-v num">{data.history.transitions.length}</span>
+              </span>
+            </div>
+
+            {data.history.turnover != null && data.history.turnover > 2 && (
+              <p className="lookup-note neg">
+                Turnover above 200% a year suggests the tier cutoffs are chasing noise rather
+                than tracking a regime.
+              </p>
+            )}
+
+            {data.history.transitions.length > 0 && (
+              <ul className="transitions">
+                {data.history.transitions.slice(0, 12).map((t) => (
+                  <li key={`${t.session}-${t.ticker}`}>
+                    <span className="num tr-date">{t.session}</span>
+                    <span className="ticker tr-ticker">{t.ticker}</span>
+                    <span className="tr-move">
+                      {t.from ?? "—"} → {t.to ?? "off screen"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {data.history.leastStable.length > 0 && (
+              <p className="lookup-note">
+                Least stable:{" "}
+                {data.history.leastStable
+                  .map((s) => `${s.ticker} (${s.sessions})`)
+                  .join(", ")}
+                . A name flipping tier every few sessions is a signal-quality problem, not a
+                trading opportunity.
+              </p>
+            )}
+          </>
+        )}
+      </section>
+
       <TickerLookup />
 
       <ScreenTable data={data} />

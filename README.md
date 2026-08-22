@@ -91,6 +91,19 @@ sessions, so a holiday week still compares like with like.
 | **Mean correlation** | Average pairwise correlation of daily returns across holdings, 60 sessions. Above ~0.6 means you own a handful of bets, not nineteen. |
 | **Top 3 sectors** | Share of weight in the three largest sectors. |
 
+### Tier stability
+
+| Figure | Meaning |
+|---|---|
+| **Annualised turnover** | Tier changes per position per year, from the recorded nights. Above ~200% suggests the cutoffs are chasing noise rather than tracking a regime. |
+| **Median time in tier** | How many consecutive sessions a typical name has held its current tier. |
+| **Recent moves** | Every tier change in the recorded window, newest first. |
+| **Least stable** | The names flipping fastest. A name changing tier every few sessions is a signal-quality problem, not a trading opportunity. |
+
+These need at least **two recorded nights** to say anything, and the refresh
+records one per weekday. Until then the section says so rather than showing a
+zero, which would read as "perfectly stable".
+
 ### Held out
 
 Names the strategy deliberately excludes, shown greyed with a diagonal hatch and

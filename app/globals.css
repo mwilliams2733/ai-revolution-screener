@@ -737,3 +737,21 @@ tr.vetoed .rail-fill { background: var(--veto); }
 }
 .legend-list dt { font-weight: 600; }
 .legend-list dd { margin: 1px 0 0; color: var(--muted); }
+
+/* Tier stability section. */
+.history { margin-top: 26px; }
+.transitions { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 2px; }
+.transitions li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 7px 11px;
+  border-radius: 7px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 0.74rem;
+}
+.tr-date { color: var(--muted); font-size: 0.68rem; }
+.tr-ticker { font-size: 0.82rem; }
+.tr-move { color: var(--muted); }

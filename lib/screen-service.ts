@@ -16,6 +16,7 @@ import {
 } from "./polygon";
 import { barsByTicker } from "./factors";
 import {
+  loadTierHistory,
   loadTrendHistory,
   loadCloseHistory,
   loadOpens,
@@ -31,6 +32,11 @@ import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
 import { applyStageRule, stageDemotedCount, type StageFields } from "./stage-overlay";
+import {
+  HISTORY_WINDOW,
+  summariseTierHistory,
+  type TierHistorySummary,
+} from "./tier-history-overlay";
 import type { TrendBar } from "./trend-template";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
@@ -73,6 +79,17 @@ async function loadHistory(tickers: readonly string[]): Promise<Map<string, numb
   } catch (e) {
     loadWarnings.push(`close history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
+  }
+}
+
+/** Recorded tier history. Empty without a database. */
+async function loadHistorySummary(): Promise<TierHistorySummary> {
+  if (!dbConfigured()) return summariseTierHistory([]);
+  try {
+    return summariseTierHistory(await loadTierHistory(HISTORY_WINDOW));
+  } catch (e) {
+    loadWarnings.push(`tier history: ${e instanceof Error ? e.message : String(e)}`);
+    return summariseTierHistory([]);
   }
 }
 
@@ -127,6 +144,8 @@ export interface ScreenPayload {
   readonly stageDemoted: number;
   /** Concentration and correlation across the selected book. */
   readonly risk: PortfolioRisk;
+  /** Tier stability over the recorded nights. */
+  readonly history: TierHistorySummary;
   readonly strongBuyLimit: number;
   /** Theme names held out by the crowding veto, ranked, never silently dropped. */
   readonly vetoed: readonly VetoedRow[];
@@ -438,6 +457,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     // is a different question from "how correlated are the names I could own",
     // and measuring 66 candidates would understate concentration badly.
     risk: portfolioRisk(portfolio, history),
+    history: await loadHistorySummary(),
     capped: cappedCount(limited),
     stageDemoted: stageDemotedCount(stageRuled),
     strongBuyLimit: STRONG_BUY_LIMIT,
