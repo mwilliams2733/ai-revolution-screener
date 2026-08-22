@@ -380,6 +380,13 @@ function DataRow({
             <span>Momentum Strong Buy, held at Buy — {row.gateReason}</span>
           </div>
         )}
+        {/* A late-stage chart caps the tier regardless of momentum rank. */}
+        {isPriced(row) && row.stageCapped && (
+          <div className="gate-note">
+            <span className="gate-dot" aria-hidden="true" />
+            <span>Held down — {row.stageReason}</span>
+          </div>
+        )}
         {/* Capped names met every rule; only rank position kept them out. */}
         {isPriced(row) && row.capped && (
           <div className="gate-note cap">

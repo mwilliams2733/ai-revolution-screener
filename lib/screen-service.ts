@@ -30,6 +30,7 @@ import { periodChanges, type PeriodChanges } from "./period-change";
 import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
+import { applyStageRule, stageDemotedCount, type StageFields } from "./stage-overlay";
 import type { TrendBar } from "./trend-template";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
@@ -101,7 +102,7 @@ async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
 export const STRONG_BUY_LIMIT = 10;
 
 /** A screen row carrying the day's open alongside the close. */
-export interface PricedRow extends CappedRow, VolumeFields, TrendFields {
+export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFields {
   /** Day, week and month price changes. */
   readonly changes: PeriodChanges;
   /** Whether vsMa came from a real rolling mean or the five-point proxy. */
@@ -122,6 +123,8 @@ export interface ScreenPayload {
   readonly demoted: number;
   /** How many cleared every rule but fell outside the top N. */
   readonly capped: number;
+  /** How many were capped by the Weinstein stage rule. */
+  readonly stageDemoted: number;
   /** Concentration and correlation across the selected book. */
   readonly risk: PortfolioRisk;
   readonly strongBuyLimit: number;
@@ -395,9 +398,16 @@ async function computeScreen(): Promise<ScreenPayload> {
   const history = await loadHistory(themedTickers);
   const trended = applyTrueMa(themed, history);
 
+  // Stage needs the trend history, and the stage rule must run before the
+  // fundamental gate and the cap: a topping name should not consume one of the
+  // ten Strong Buy slots on its way down.
+  const trendBars = await loadTrendBars(themedTickers);
+  const staged = applyTrend(trended, trendBars);
+  const stageRuled = applyStageRule(staged);
+
   // Fundamental overlay: tighten Strong Buy without touching the momentum core.
-  const fundamentals = await fundamentalsForCandidates(trended, ciks);
-  const overlaid = applyFundamentalOverlay(trended, fundamentals);
+  const fundamentals = await fundamentalsForCandidates(stageRuled, ciks);
+  const overlaid = applyFundamentalOverlay(stageRuled, fundamentals);
 
   // Cap AFTER the gate: the gate removes names that do not deserve the tier on
   // merit, then the cap takes the best of what is left. Reversed, a decelerating
@@ -408,11 +418,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   const volumeBars = await loadVolumeBars();
   const withVolume = applyVolume(ranked, limited, volumeBars);
 
-  // Trend template and stage: per-ticker, and null without true averages.
-  const trendBars = await loadTrendBars(themedTickers);
-  const withTrend = applyTrend(withVolume, trendBars);
-
-  const priced: PricedRow[] = withTrend.map((r) => {
+  const priced: PricedRow[] = withVolume.map((r) => {
     const open = opens.get(r.ticker) ?? null;
     // Reuses the close history already loaded for the moving averages, so the
     // short-horizon changes cost no additional query.
@@ -433,6 +439,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     // and measuring 66 candidates would understate concentration badly.
     risk: portfolioRisk(portfolio, history),
     capped: cappedCount(limited),
+    stageDemoted: stageDemotedCount(stageRuled),
     strongBuyLimit: STRONG_BUY_LIMIT,
     vetoed: collectVetoed(ranked, new Set(names.keys())),
     meta: {
@@ -445,7 +452,7 @@ async function computeScreen(): Promise<ScreenPayload> {
       maWindow: MA_WINDOW,
       volumeMeasured: volumeMeasuredCount(withVolume),
       volumeWindow: VOLUME_WINDOW,
-      trendScored: trendScoredCount(withTrend),
+      trendScored: trendScoredCount(staged),
       trendMinHistory: TREND_MIN_HISTORY,
       warnings: [...loadWarnings],
     },

@@ -24,15 +24,25 @@ audited.
 
 | Column | Meaning |
 |---|---|
-| **Tier** | `Strong Buy`, `Buy` or `Hold`. Assigned from relative strength and trend position, then tightened by two extra rules (below). |
+| **Tier** | `Strong Buy`, `Buy` or `Hold`. Assigned from relative strength and trend position, then tightened by three extra rules (below). |
 | **Weight** | What the strategy would allocate: 7.43% Strong Buy, 5.00% Buy, 2.60% Hold. Treat it as a *signal grade*, not a position size — see "Known quirks". |
 
-A tier can be **held down** for two reasons, both shown under the row:
+A tier can be **held down** for three reasons, each shown under the row:
 
+- *"Held down — Stage 3 (topping)"* — the 150-day average is flattening or
+  rolling over. A late-stage chart caps the tier one step: Strong Buy becomes
+  Buy, Buy becomes Hold. Hold already means "no new money", which is what a
+  topping chart says.
 - *"Momentum Strong Buy, held at Buy"* — it ranked highly on price but its
   revenue growth is decelerating **and** its operating margin is compressing.
 - *"Meets every Strong Buy rule, outside the top 10 by rank"* — it passed
   everything, but only the ten highest-ranked names hold the top tier.
+
+The three run in that order, which matters: a topping name is capped **before**
+the top-10 cut, so it cannot occupy a Strong Buy slot on its way down. One
+consequence worth knowing — a Stage 3 name that was a *momentum* Strong Buy
+lands at Buy, while one that was a momentum Buy lands at Hold. The rule caps by
+one step; it does not send everything late-stage to Hold.
 
 ### Prices and changes
 
@@ -76,7 +86,7 @@ sessions, so a holiday week still compares like with like.
 |---|---|
 | **Ranked universe** | How many liquid names were scored. Everything is ranked here *before* the theme filter, which is what makes the tier cutoffs meaningful. |
 | **In theme** | How many survived the theme filter. |
-| **Gate demoted / Capped out** | How many Strong Buys the fundamental rule and the top-10 cap moved down. |
+| **Stage capped / Gate demoted / Capped out** | How many names each of the three tightening rules moved down. |
 | **Effective bets** | How many *independent* positions the book really holds, adjusting for correlation. Compare it to the holding count: 19 holdings at 2.9 effective bets means most of the book moves together. |
 | **Mean correlation** | Average pairwise correlation of daily returns across holdings, 60 sessions. Above ~0.6 means you own a handful of bets, not nineteen. |
 | **Top 3 sectors** | Share of weight in the three largest sectors. |

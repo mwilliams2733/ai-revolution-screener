@@ -111,6 +111,10 @@ export default async function Page() {
             <span className="stat-v num">{data.vetoed.length}</span>
           </span>
           <span>
+            <span className="stat-k">Stage capped</span>
+            <span className="stat-v num">{data.stageDemoted}</span>
+          </span>
+          <span>
             <span className="stat-k">Gate demoted</span>
             <span className="stat-v num">{data.demoted}</span>
           </span>
@@ -171,9 +175,9 @@ export default async function Page() {
       <p className="foot">
         Each rail runs 0 to 100 across the ranked universe, with the two cutoffs marked. Cool
         means the name trades above its 200-day moving-average proxy, warm means below.
-        A Strong Buy must also show accelerating revenue or an expanding operating margin, and
-        the tier is capped at the top {data.strongBuyLimit} by rank; names that fail either test
-        are held at Buy with the reason shown. Fundamentals checked for{" "}
+        A late-stage chart (Weinstein 3 or 4) caps the tier one step; a Strong Buy must also
+        show accelerating revenue or an expanding operating margin; and the top tier is limited
+        to the {data.strongBuyLimit} highest-ranked survivors. Every name held down shows why. Fundamentals checked for{" "}
         {data.meta.fundamentalsChecked} names. Bars for {Object.keys(data.anchors).length} anchor
         sessions, {cached} served from cache. Screen built in{" "}
         {(data.meta.elapsedMs / 1000).toFixed(1)}s.
