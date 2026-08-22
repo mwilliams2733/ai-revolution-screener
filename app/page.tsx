@@ -123,6 +123,10 @@ export default async function Page() {
             <span className="stat-k">Capped out</span>
             <span className="stat-v num">{data.capped}</span>
           </span>
+          <span>
+            <span className="stat-k">Balance sheet</span>
+            <span className="stat-v num">{data.healthCapped}</span>
+          </span>
         </div>
 
         <Distribution marks={marks} />

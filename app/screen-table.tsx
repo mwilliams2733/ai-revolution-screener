@@ -213,6 +213,46 @@ function RowDetail({ row }: { row: Row }) {
             <dt>Sector</dt>
             <dd>{sectorLabel(row.sector)}</dd>
           </div>
+          {priced?.health && (
+            <>
+              <div>
+                <dt>Share count</dt>
+                <dd className="num">
+                  {priced.health.dilution == null ? (
+                    MISSING
+                  ) : (
+                    <>
+                      <span className={priced.health.dilution.growth > 0 ? "neg" : "pos"}>
+                        {pct(priced.health.dilution.growth * 100)}
+                      </span>
+                      <span className="detail-note"> in a year, split-adjusted</span>
+                    </>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Cash runway</dt>
+                <dd className="num">
+                  {priced.health.runway == null ? (
+                    <span className="detail-note">funds itself</span>
+                  ) : (
+                    <>
+                      {priced.health.runway.toFixed(0)}
+                      <span className="detail-note"> months at the current burn</span>
+                    </>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Market cap</dt>
+                <dd className="num">
+                  {priced.health.marketCap == null
+                    ? MISSING
+                    : money(priced.health.marketCap / 1e6) + "M"}
+                </dd>
+              </div>
+            </>
+          )}
           <div>
             <dt>Close vs open</dt>
             <dd className={`num ${signClass(priced?.changes.intraday ?? null)}`}>
@@ -399,6 +439,15 @@ function DataRow({
               Meets every Strong Buy rule, outside the top {STRONG_BUY_LIMIT} by rank
               {row.capHeld && ` — within ${CAP_MARGIN} points of the last slot, held by the incumbent`}
             </span>
+          </div>
+        )}
+        {/* A balance-sheet failure is a different statement from a rank or a
+            trend: it questions whether the equity survives. Capped at Hold and
+            never hidden -- the reason stays on the row. */}
+        {isPriced(row) && row.healthCapped && (
+          <div className="gate-note health">
+            <span className="gate-dot" aria-hidden="true" />
+            <span>Capped at Hold — {row.healthReason}</span>
           </div>
         )}
         {isPriced(row) && row.capHeld && !row.capped && (

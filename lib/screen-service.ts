@@ -28,6 +28,9 @@ import {
   storedTradingSessions,
   tickerNames,
   tickerSectors,
+  companyHealth,
+  splitHistory,
+  medianDollarVolume,
 } from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
@@ -47,7 +50,15 @@ import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capHeldCount, capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
-import { runScreen, DEFAULT_PARAMS } from "./index";
+import {
+  applyHealth,
+  healthCappedCount,
+  healthUnknownCount,
+  type HealthFacts,
+  type HealthFields,
+} from "./health-overlay";
+import type { Split } from "./splits";
+import { runScreen, DEFAULT_PARAMS, withParams } from "./index";
 import { exclusionReason, themeUniverse } from "./theme";
 import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots, Tier } from "./types";
 import { classify, type SectorLabels } from "./sic";
@@ -124,8 +135,29 @@ async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
 /** How many names may hold the Strong Buy tier at once. */
 export const STRONG_BUY_LIMIT = 10;
 
+/**
+ * Screen parameters, overriding two decoded defaults.
+ *
+ * `minPrice` drops from $5 to $1. $5 was a convention -- the Reg T
+ * marginability line -- and said nothing about a company; every risk it stood
+ * in for is now measured directly by the balance-sheet guardrails. $1 is a
+ * fact: below it an exchange opens delisting deficiency proceedings, so "above
+ * $1" means "currently in compliance with its listing standards".
+ *
+ * `minDollarVolume` drops to zero here because the same-day gate has been
+ * replaced by a PERSISTENT one -- see LIQUIDITY_WINDOW. Leaving both active
+ * would gate twice on the same idea, once badly.
+ */
+export const SCREEN_PARAMS = withParams({ minPrice: 1, minDollarVolume: 0 });
+
+/** Sessions the persistent liquidity gate measures over. */
+export const LIQUIDITY_WINDOW = 50;
+
+/** Median dollar volume a name must sustain to be ranked at all. */
+export const MIN_MEDIAN_DOLLAR_VOLUME = 10_000_000;
+
 /** A screen row carrying the day's open alongside the close. */
-export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFields, HysteresisFields {
+export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFields, HysteresisFields, HealthFields {
   /** Day, week and month price changes. */
   readonly changes: PeriodChanges;
   /** Whether vsMa came from a real rolling mean or the five-point proxy. */
@@ -180,6 +212,10 @@ export interface ScreenPayload {
   readonly capped: number;
   /** How many top-N slots were decided by incumbency rather than raw rank. */
   readonly capHeld: number;
+  /** How many the balance-sheet guardrails capped at Hold. */
+  readonly healthCapped: number;
+  /** How many could not be measured against the guardrails at all. */
+  readonly healthUnknown: number;
   /** How many were capped by the Weinstein stage rule. */
   readonly stageDemoted: number;
   /** How many kept a tier they would otherwise have flipped out of. */
@@ -476,9 +512,35 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   const { names, ciks, sectors, source: namesSource } = await resolveReference();
 
+  // Persistent liquidity, applied by narrowing the universe BEFORE ranking.
+  // Filtering afterwards would leave the percentiles computed over a different
+  // set than the one on screen, and an RS of 90 would stop meaning the same
+  // thing in both places.
+  //
+  // A name with no stored history falls back to today's dollar volume rather
+  // than being excluded for being new -- a recent listing is not illiquid, it
+  // is unmeasured, and the two must not be confused.
+  const medians = dbConfigured()
+    ? await medianDollarVolume(LIQUIDITY_WINDOW).catch((e: unknown) => {
+        loadWarnings.push(`median volume: ${e instanceof Error ? e.message : String(e)}`);
+        return new Map<string, number>();
+      })
+    : new Map<string, number>();
+
+  const liquid = new Map<string, string>();
+  for (const [ticker, name] of names) {
+    const med = medians.get(ticker);
+    const today = snapshots.now?.get(ticker);
+    const dv = today ? today.close * today.volume : 0;
+    if (med != null ? med >= MIN_MEDIAN_DOLLAR_VOLUME : dv >= MIN_MEDIAN_DOLLAR_VOLUME) {
+      liquid.set(ticker, name);
+    }
+  }
+
   const { ranked, themed, portfolio, universeSize } = runScreen({
     snapshots: snapshots as unknown as Snapshots,
-    names,
+    names: liquid,
+    params: SCREEN_PARAMS,
   });
 
   // Hysteresis sits between the momentum tier and the demoting overlays: it
@@ -527,7 +589,28 @@ async function computeScreen(): Promise<ScreenPayload> {
   // Cap AFTER the gate: the gate removes names that do not deserve the tier on
   // merit, then the cap takes the best of what is left. Reversed, a decelerating
   // name would burn a slot on its way out.
-  const limited = capStrongBuy(overlaid, STRONG_BUY_LIMIT, undefined, incumbents);
+  // Balance-sheet guardrails run BEFORE the cap, for the same reason the stage
+  // rule does: a name that is about to be capped at Hold must not consume one
+  // of the ten Strong Buy slots on its way down. Ordered the other way the
+  // screen showed EIGHT Strong Buys -- the cap had filled all ten and the
+  // guardrails then emptied two, wasting the slots rather than passing them to
+  // the next healthy name.
+  const [healthFacts, splits] = dbConfigured()
+    ? await Promise.all([
+        companyHealth().catch((e: unknown) => {
+          loadWarnings.push(`company health: ${e instanceof Error ? e.message : String(e)}`);
+          return new Map<string, HealthFacts>();
+        }),
+        splitHistory().catch((e: unknown) => {
+          loadWarnings.push(`splits: ${e instanceof Error ? e.message : String(e)}`);
+          return new Map<string, Split[]>();
+        }),
+      ])
+    : [new Map<string, HealthFacts>(), new Map<string, Split[]>()];
+  const guarded = applyHealth(overlaid, healthFacts, splits);
+
+  const limited = capStrongBuy(guarded, STRONG_BUY_LIMIT, undefined, incumbents);
+
 
   // Volume metrics grade against the FULL ranked universe, never the theme.
   const volumeBars = await loadVolumeBars();
@@ -576,6 +659,8 @@ async function computeScreen(): Promise<ScreenPayload> {
     leadersClassified: ranked.filter((r) => sectors.has(r.ticker)).length,
     capped: cappedCount(limited),
     capHeld: capHeldCount(limited),
+    healthCapped: healthCappedCount(limited),
+    healthUnknown: healthUnknownCount(limited),
     stageDemoted: stageDemotedCount(stageRuled),
     held: heldCount(trended),
     strongBuyLimit: STRONG_BUY_LIMIT,

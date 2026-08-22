@@ -225,9 +225,23 @@ export interface Thresholds {
   readonly minRunwayMonths: number;
 }
 
+/**
+ * Chosen 2026-08-22 after measuring the whole ranked universe.
+ *
+ * `maxDilution` is 30% rather than 25% deliberately. At 25% the theme's
+ * failures were AXTI 42%, AAOI 36%, LITE 28%, COHR 26%, RDW 74% and POET 73% --
+ * a cluster sitting right on the line, where LITE and COHR differ from passing
+ * names by a couple of points. 30% separates the two groups on a gap in the
+ * data rather than in the middle of one: what remains are 36%+ raisers, and
+ * what passes tops out at 28%.
+ *
+ * These are policy, not physics. scripts/health.ts stores FACTS and derives
+ * verdicts at read time precisely so moving one of these costs a re-report
+ * rather than re-fetching 4,300 filings.
+ */
 export const DEFAULT_THRESHOLDS: Thresholds = {
   minMarketCap: 150_000_000,
-  maxDilution: 0.25,
+  maxDilution: 0.30,
   minRunwayMonths: 12,
 };
 

@@ -8,6 +8,9 @@
 
 import { neon } from "@neondatabase/serverless";
 import { classify, type SectorLabels } from "./sic";
+import type { HealthFacts } from "./health-overlay";
+import type { FactPoint } from "./solvency";
+import { byTicker, type Split } from "./splits";
 import type { Bar, BarsByTicker } from "./types";
 import type { PolygonBar, TickerRefLike } from "./db-types";
 
@@ -67,6 +70,76 @@ export async function tickerNames(): Promise<Map<string, string>> {
   const sql = client();
   const rows = (await sql`SELECT ticker, name FROM tickers`) as { ticker: string; name: string }[];
   return new Map(rows.map((r) => [r.ticker, r.name]));
+}
+
+/**
+ * Cached EDGAR balance-sheet facts, as ticker -> facts.
+ *
+ * Facts, not verdicts. Thresholds are policy and will be tuned; deriving the
+ * judgment at read time means moving one costs a re-render rather than
+ * re-fetching 4,300 filings.
+ */
+export async function companyHealth(): Promise<Map<string, HealthFacts>> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, shares, cash, ocf, revenue FROM company_health
+  `) as {
+    ticker: string;
+    shares: FactPoint[] | null;
+    cash: number | null;
+    ocf: FactPoint[] | null;
+    revenue: number | null;
+  }[];
+  return new Map(
+    rows.map((r) => [
+      r.ticker,
+      { shares: r.shares ?? [], cash: r.cash, ocf: r.ocf ?? [], revenue: r.revenue },
+    ]),
+  );
+}
+
+/**
+ * Split history, as ticker -> splits oldest first.
+ *
+ * Required before any year-on-year share-count comparison: cover-page counts
+ * are never restated, so a 10-for-1 reads as +900% dilution.
+ */
+export async function splitHistory(): Promise<Map<string, Split[]>> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, execution_date::text AS execution_date, split_from, split_to FROM splits
+  `) as { ticker: string; execution_date: string; split_from: number; split_to: number }[];
+  return byTicker(
+    rows.map((r) => ({
+      ticker: r.ticker,
+      executionDate: r.execution_date,
+      from: Number(r.split_from),
+      to: Number(r.split_to),
+    })),
+  );
+}
+
+/**
+ * Median dollar volume over the last `sessions` sessions, as ticker -> value.
+ *
+ * The screen's own gate reads TODAY's dollar volume, a single bar -- which is
+ * exactly what a pump-and-dump passes, since the whole category is defined by
+ * episodic volume. A median over fifty sessions asks whether the liquidity is
+ * actually there, which is the question the gate was always meant to ask.
+ */
+export async function medianDollarVolume(sessions: number): Promise<Map<string, number>> {
+  const sql = client();
+  const rows = (await sql`
+    WITH recent AS (
+      SELECT session FROM stored_sessions ORDER BY session DESC LIMIT ${sessions}
+    )
+    SELECT b.ticker,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY b.close * b.volume) AS med
+    FROM daily_bars b
+    WHERE b.session >= (SELECT min(session) FROM recent)
+    GROUP BY b.ticker
+  `) as { ticker: string; med: number }[];
+  return new Map(rows.map((r) => [r.ticker, Number(r.med)]));
 }
 
 /**

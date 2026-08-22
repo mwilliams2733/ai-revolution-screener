@@ -27,7 +27,7 @@ audited.
 | **Tier** | `Strong Buy`, `Buy` or `Hold`. Assigned from relative strength and trend position, then tightened by three extra rules (below). |
 | **Weight** | What the strategy would allocate: 7.43% Strong Buy, 5.00% Buy, 2.60% Hold. Treat it as a *signal grade*, not a position size — see "Known quirks". |
 
-A tier can be **held down** for three reasons, each shown under the row:
+A tier can be **held down** for four reasons, each shown under the row:
 
 - *"Held down — Stage 3 (topping)"* — the 150-day average is flattening or
   rolling over. A late-stage chart caps the tier one step: Strong Buy becomes
@@ -35,6 +35,13 @@ A tier can be **held down** for three reasons, each shown under the row:
   topping chart says.
 - *"Momentum Strong Buy, held at Buy"* — it ranked highly on price but its
   revenue growth is decelerating **and** its operating margin is compressing.
+- *"Capped at Hold — shares +42% in a year (limit 30%)"* — a balance-sheet
+  guardrail. Applied to **every** name, not just cheap ones: if dilution
+  matters at $2 it matters at $20. Three thresholds — share count growing more
+  than **30%** a year, under **12 months** of cash at the current burn, or a
+  market cap under **$150M**. A failure caps the tier at Hold, because Hold
+  already means "no new money", which is what a balance-sheet failure says.
+  Nothing is deleted; the row keeps its rank and carries the reason.
 - *"Meets every Strong Buy rule, outside the top 10 by rank"* — it passed
   everything, but only the ten highest-ranked names hold the top tier. A
   challenger has to beat the name in the last slot by **2 percentile points**
@@ -42,8 +49,12 @@ A tier can be **held down** for three reasons, each shown under the row:
   so. Without the margin the names at ranks 10 and 11 swapped almost daily,
   which was the single largest source of tier churn in the whole ruleset.
 
-The three run in that order, which matters: a topping name is capped **before**
-the top-10 cut, so it cannot occupy a Strong Buy slot on its way down. One
+They run in that order, which matters: a topping name and a name failing a
+balance-sheet guardrail are both capped **before** the top-10 cut, so neither
+occupies a Strong Buy slot on its way down. Ordered the other way the screen
+showed eight Strong Buys rather than ten — the cap filled all ten and the
+guardrails then emptied two, wasting the slots instead of passing them to the
+next healthy name. One
 consequence worth knowing — a Stage 3 name that was a *momentum* Strong Buy
 lands at Buy, while one that was a momentum Buy lands at Hold. The rule caps by
 one step; it does not send everything late-stage to Hold.
@@ -216,6 +227,23 @@ distinction is load-bearing twice:
 count is still too low to conclude anything. About 20 live sessions at a
 21-session horizon is where `UNDERPOWERED` starts to lift.
 
+## Price and liquidity filters
+
+Six layers decide what gets ranked at all:
+
+| Filter | Value | Why |
+|---|---|---|
+| **Security type** | common stock **and ADRs** | `type=CS` alone hid TSM, ASML and ARM — three of the most important names in the AI supply chain — while their bars sat in the database. |
+| **Price** | **≥ $1** | Not $5. That was the Reg T marginability convention and said nothing about a company. $1 is the exchange delisting-deficiency line, so "above $1" means "in compliance with its listing standards". |
+| **Liquidity** | **median $10M/day over 50 sessions** | Not today's dollar volume. A single-day gate is exactly what a pump passes, since the whole garbage category is defined by *episodic* volume. Names with no stored history fall back to today's figure — a recent listing is unmeasured, not illiquid. |
+| **History** | 12 months | The relative-strength blend needs 3-, 6- and 12-month anchors, so recent IPOs are invisible until they have a year. |
+| **Theme map** | `lib/theme.ts` | Only for the theme table. The leaders view ignores it. |
+| **Crowding veto** | memory/storage | Shown greyed with the reason, never silently dropped. |
+
+Dropping the price floor from $5 to $1 admitted 46 names and grew the ranked
+universe from 2,316 to 2,353. The balance-sheet guardrails above are what
+replaced it — each risk the floor stood in for, measured directly.
+
 ## Known quirks, deliberately left
 
 - **Ten Strong Buys at 7.43% each is a 74.3% sleeve**, not the published 52%.
@@ -232,6 +260,9 @@ npm run audit          # typecheck + tests + live data integrity
 npm run backfill       # one-off history load, safe to re-run
 npm run replay         # rebuild tier_history from stored bars
 npm run backtest       # forward return by tier, with honest sample sizes
+npm run sectors        # SIC classification from EDGAR, resumable
+npm run splits         # cache Polygon split history
+npm run health         # balance-sheet facts from EDGAR, then a guardrail report
 ```
 
 `npm run audit` is the gate. It asserts the values that caught real bugs:

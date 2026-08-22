@@ -977,3 +977,9 @@ tr.vetoed .rail-fill { background: var(--veto); }
   .leaders-tbl th[scope="col"]:nth-child(6) { display: none; }
   .leaders-tbl .lt-name { max-width: 15ch; }
 }
+
+/* A balance-sheet cap is the strongest demotion on the page -- it questions
+   whether the equity survives, not how the business is trending -- so it gets
+   the warm hue the rest of the notes do not. */
+.gate-note.health .gate-dot { background: var(--warm); }
+.gate-note.health { color: var(--warm); }
