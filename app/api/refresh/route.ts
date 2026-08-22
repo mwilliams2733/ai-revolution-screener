@@ -12,7 +12,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { groupedDaily, tradingCalendar } from "@/lib/polygon";
+import { groupedDaily, tickerBars, tradingCalendar } from "@/lib/polygon";
 import {
   finishRun,
   insertBars,
@@ -21,12 +21,19 @@ import {
   recordSession,
   startRun,
   upsertTierHistory,
+  handledSplits,
+  markSplitsHandled,
+  replaceTickerBars,
+  splitHistory,
+  storedCalendarBounds,
+  tickersWithBars,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
 import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { isoDaysAgo } from "@/lib/dates";
+import { pendingRefetches, refetchTargets } from "@/lib/splits";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -40,6 +47,15 @@ export const maxDuration = 300;
  * the work list is computed from the ledger, not from a cursor.
  */
 const MAX_SESSIONS_PER_RUN = 3;
+
+/**
+ * Tickers whose split-stranded history is repaired per run.
+ *
+ * Bounded so a backlog drains over several nights instead of timing out the
+ * function. The ledger makes that safe: progress is recorded per split, so an
+ * interrupted run resumes exactly rather than restarting or skipping.
+ */
+const MAX_REFETCH_PER_RUN = 25;
 
 /**
  * How far back to look for gaps. (Finding M4)
@@ -93,6 +109,7 @@ async function handle(req: Request) {
   let barsAdded = 0;
   const stored: string[] = [];
   const retried: string[] = [];
+  const repairedTickers: string[] = [];
 
   try {
     // Real session dates, newest first, over a window wide enough that a
@@ -100,6 +117,10 @@ async function handle(req: Request) {
     const calendar = await tradingCalendar(isoDaysAgo(CATCHUP_WINDOW * 2), isoDaysAgo(0));
     const recent = calendar.slice(0, CATCHUP_WINDOW);
     const todo = (await missingSessions(recent)).slice(0, MAX_SESSIONS_PER_RUN);
+    // Bounds for any split repair below: a repair must never widen the stored
+    // calendar, or one ticker gets sessions no other name has and every
+    // positional lookback is off by one for it.
+    const calendarBounds = await storedCalendarBounds();
 
     for (const date of todo) {
       const bars = await groupedDaily(date);
@@ -117,6 +138,48 @@ async function handle(req: Request) {
       stored.push(date);
       sessionsAdded += 1;
       barsAdded += n;
+    }
+
+    // Repair any history a split has stranded, BEFORE the screen is built.
+    // Polygon restates a ticker's whole price series when a split executes and
+    // the session-level backfill above can never notice, because its work list
+    // is a set difference over sessions and cannot see that a stored session's
+    // VALUES changed. Left unrepaired, a 10:1 reverse split makes the
+    // twelve-month lookback read about +900% and puts a collapsing micro-cap
+    // at the top of the screen.
+    //
+    // Bounded per run so a backlog drains over several nights rather than
+    // timing out the function. Progress is a per-split ledger, so an
+    // interrupted run resumes exactly where it stopped.
+    const [allSplits, handled, held] = await Promise.all([
+      splitHistory(),
+      handledSplits(),
+      tickersWithBars(),
+    ]);
+    const pending = pendingRefetches([...allSplits.values()].flat(), handled, held);
+    const targets = refetchTargets(pending).slice(0, MAX_REFETCH_PER_RUN);
+    for (const t of targets) {
+      try {
+        const bars = await tickerBars(t.ticker, calendarBounds.lo, calendarBounds.hi);
+        if (bars.length > 0) {
+          await replaceTickerBars(
+            t.ticker,
+            bars.map((b) => ({
+              session: new Date((b as unknown as { t: number }).t).toISOString().slice(0, 10),
+              o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw,
+            })),
+          );
+          repairedTickers.push(t.ticker);
+        }
+        await markSplitsHandled(
+          pending
+            .filter((s) => s.ticker === t.ticker)
+            .map((s) => ({ ticker: s.ticker, executionDate: s.executionDate })),
+        );
+      } catch {
+        // Deliberately NOT marked handled: an error must leave the work
+        // outstanding rather than record a repair that never happened.
+      }
     }
 
     // Snapshot the screen so tier changes are diffable tomorrow.
@@ -181,7 +244,11 @@ async function handle(req: Request) {
       tiersSnapshotted: snapshotted,
       tierChanges: changes.length,
       alert,
+      splitsRepaired: repairedTickers,
+      // Both backlogs, so a run that is quietly falling behind is visible in
+      // the response rather than only in the data.
       remaining: Math.max(0, (await missingSessions(recent)).length),
+      splitsPending: Math.max(0, pending.length - targets.length),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "refresh failed";

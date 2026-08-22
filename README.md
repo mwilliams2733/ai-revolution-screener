@@ -244,6 +244,26 @@ Dropping the price floor from $5 to $1 admitted 46 names and grew the ranked
 universe from 2,316 to 2,353. The balance-sheet guardrails above are what
 replaced it — each risk the floor stood in for, measured directly.
 
+## Splits
+
+Polygon restates a ticker's **entire** price history when a split executes.
+`npm run backfill` computes its work list as a set difference over *sessions*,
+so it can never notice that an already-stored session's values changed. Left
+alone, a 10-for-1 reverse split leaves every pre-split bar on the old basis: the
+twelve-month lookback spans the discontinuity, reads about **+900%**, and puts a
+collapsing micro-cap at the top of the screen.
+
+`npm run refetch-splits` repairs it, and the nightly refresh drains 25 tickers a
+run so the backlog cannot build. Progress is a per-split ledger
+(`split_refetch`), never a high-water date — a watermark assumes everything
+older was handled, so one failed repair is skipped forever and a split
+discovered late with an older execution date is never done at all. `npm run
+audit` fails loudly if anything is outstanding.
+
+The same table de-contaminates the dilution guardrail: cover-page share counts
+are never restated either, so an unadjusted 10-for-1 reads as +900% issuance and
+condemns whichever companies appreciated enough to split.
+
 ## Known quirks, deliberately left
 
 - **Ten Strong Buys at 7.43% each is a 74.3% sleeve**, not the published 52%.
@@ -263,6 +283,7 @@ npm run backtest       # forward return by tier, with honest sample sizes
 npm run sectors        # SIC classification from EDGAR, resumable
 npm run splits         # cache Polygon split history
 npm run health         # balance-sheet facts from EDGAR, then a guardrail report
+npm run refetch-splits # repair price history stranded by a split
 ```
 
 `npm run audit` is the gate. It asserts the values that caught real bugs:

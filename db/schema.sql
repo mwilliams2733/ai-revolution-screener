@@ -159,3 +159,25 @@ CREATE INDEX IF NOT EXISTS tier_history_ticker_idx ON tier_history (ticker, sess
 -- That is a real trade-off, not a free win: filtering at write time bakes
 -- today's liquidity threshold into stored history, so a future backtest cannot
 -- lower minDollarVolume without refetching. Decide deliberately.
+
+-- ---------------------------------------------------------------------------
+
+-- Splits whose price history has been re-fetched.
+--
+-- Polygon restates a ticker's whole price history when a split executes, and
+-- scripts/backfill.ts never re-fetches a session it already stored -- its work
+-- list is a set difference over SESSIONS, which cannot see that an existing
+-- session's values changed. Without this ledger a 10:1 reverse split would
+-- leave the pre-split bars on the old basis and manufacture a +900% twelve-month
+-- return, sending that name to RS 99.
+--
+-- A ledger rather than a watermark on purpose: a high-water date assumes every
+-- split before it was handled, so one failed repair in the middle is skipped
+-- forever, and a split discovered later with an older execution date is never
+-- done at all.
+CREATE TABLE IF NOT EXISTS split_refetch (
+  ticker         TEXT NOT NULL,
+  execution_date DATE NOT NULL,
+  done_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (ticker, execution_date)
+);

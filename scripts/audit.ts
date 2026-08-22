@@ -175,6 +175,27 @@ async function main(): Promise<void> {
       true,
     );
 
+    // Split repairs. A backlog is expected -- the nightly refresh drains 25 a
+    // run -- but a backlog that stops shrinking means the repair is failing
+    // silently, and every stranded ticker carries a fake lookback return.
+    const backlog = (await sql`
+      SELECT count(*) AS n FROM splits s
+      WHERE EXISTS (SELECT 1 FROM daily_bars b WHERE b.ticker = s.ticker)
+        AND NOT EXISTS (
+          SELECT 1 FROM split_refetch r
+          WHERE r.ticker = s.ticker AND r.execution_date = s.execution_date
+        )
+    `) as { n: string }[];
+    assert(
+      "split-stranded history is repaired",
+      Number(backlog[0].n) === 0,
+      Number(backlog[0].n) === 0
+        ? "every known split has had its price history re-fetched"
+        : `${backlog[0].n} splits pending; the refresh drains ${25} a night, ` +
+          `and until then those tickers carry a lookback return the size of the split ratio`,
+      true,
+    );
+
     // A session that is part live and part replayed means something wrote over
     // half of it. Neither figure can be trusted after that.
     const mixed = (await sql`

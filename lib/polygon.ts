@@ -256,6 +256,30 @@ export async function tradingCalendar(
   return (res.results ?? []).map((r) => new Date(r.t).toISOString().slice(0, 10));
 }
 
+/**
+ * Every daily bar for ONE ticker over a date range, split-adjusted as of now.
+ *
+ * Deliberately the exception to this file's rule against per-ticker calls. The
+ * grouped endpoint returns a whole session at once and is right for bulk, but
+ * a split restates one company's entire history and re-running every session
+ * to repair one name would be thousands of calls instead of one.
+ */
+export async function tickerBars(
+  ticker: string,
+  from: string,
+  to: string,
+  opts: FetchOptions = {},
+): Promise<GroupedBar[]> {
+  const res = await get<{ results?: Omit<GroupedBar, "T">[] & { t: number }[] }>(
+    `/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000`,
+    opts,
+  );
+  return (res.results ?? []).map((r) => ({
+    ...(r as unknown as GroupedBar),
+    T: ticker,
+  }));
+}
+
 /** Anchor dates for the five snapshots the screen reads. */
 export function anchorDates(
   calendar: readonly string[],

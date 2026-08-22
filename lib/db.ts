@@ -194,6 +194,85 @@ export async function insertBars(session: string, bars: readonly PolygonBar[]): 
 }
 
 /**
+ * Replace one ticker's stored bars across many sessions.
+ *
+ * Used to repair a series stranded by a split. Only sessions we already track
+ * are written: a re-fetch must not quietly widen the stored calendar, which
+ * would leave one ticker with sessions no other name has and make every
+ * positional lookback off by one for it.
+ */
+export async function replaceTickerBars(
+  ticker: string,
+  bars: readonly { session: string; o?: number; h?: number; l?: number; c: number; v?: number; vw?: number }[],
+): Promise<number> {
+  if (bars.length === 0) return 0;
+  const sql = client();
+  let n = 0;
+  for (const batch of chunk(bars, CHUNK)) {
+    await sql`
+      INSERT INTO daily_bars (session, ticker, open, high, low, close, volume, vwap)
+      SELECT t.session, ${ticker}, t.open, t.high, t.low, t.close, t.volume, t.vwap
+      FROM UNNEST(
+        ${batch.map((b) => b.session)}::date[],
+        ${batch.map((b) => b.o ?? null)}::float8[],
+        ${batch.map((b) => b.h ?? null)}::float8[],
+        ${batch.map((b) => b.l ?? null)}::float8[],
+        ${batch.map((b) => b.c)}::float8[],
+        ${batch.map((b) => b.v ?? 0)}::float8[],
+        ${batch.map((b) => b.vw ?? null)}::float8[]
+      ) AS t(session, open, high, low, close, volume, vwap)
+      WHERE EXISTS (SELECT 1 FROM stored_sessions s WHERE s.session = t.session)
+      ON CONFLICT (session, ticker) DO UPDATE SET
+        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+        close = EXCLUDED.close, volume = EXCLUDED.volume, vwap = EXCLUDED.vwap
+    `;
+    n += batch.length;
+  }
+  return n;
+}
+
+/** Splits already repaired, as "TICKER|YYYY-MM-DD" keys. */
+export async function handledSplits(): Promise<Set<string>> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, execution_date::text AS execution_date FROM split_refetch
+  `) as { ticker: string; execution_date: string }[];
+  return new Set(rows.map((r) => `${r.ticker}|${r.execution_date}`));
+}
+
+/** Record splits whose history has been re-fetched. */
+export async function markSplitsHandled(
+  splits: readonly { ticker: string; executionDate: string }[],
+): Promise<void> {
+  if (splits.length === 0) return;
+  const sql = client();
+  await sql`
+    INSERT INTO split_refetch (ticker, execution_date)
+    SELECT * FROM UNNEST(
+      ${splits.map((s) => s.ticker)}::text[],
+      ${splits.map((s) => s.executionDate)}::date[]
+    ) AS t(ticker, execution_date)
+    ON CONFLICT (ticker, execution_date) DO NOTHING
+  `;
+}
+
+/** Oldest and newest stored session, bounding any repair. */
+export async function storedCalendarBounds(): Promise<{ lo: string; hi: string }> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT min(session)::text AS lo, max(session)::text AS hi FROM stored_sessions
+  `) as { lo: string | null; hi: string | null }[];
+  return { lo: rows[0]?.lo ?? "", hi: rows[0]?.hi ?? "" };
+}
+
+/** Tickers we store any bars for. */
+export async function tickersWithBars(): Promise<Set<string>> {
+  const sql = client();
+  const rows = (await sql`SELECT DISTINCT ticker FROM daily_bars`) as { ticker: string }[];
+  return new Set(rows.map((r) => r.ticker));
+}
+
+/**
  * Daily closes per ticker over the last `window` stored sessions, oldest first.
  *
  * One query for the whole universe rather than one per ticker: 2,200 round

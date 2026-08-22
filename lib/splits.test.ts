@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { adjustSeries, byTicker, factorSince, tickersNeedingRefetch, type Split } from "./splits";
+import {
+  adjustSeries,
+  byTicker,
+  factorSince,
+  pendingRefetches,
+  refetchTargets,
+  splitKey,
+  tickersNeedingRefetch,
+  type Split,
+} from "./splits";
 import { dilution } from "./solvency";
 
 const split = (ticker: string, executionDate: string, from: number, to: number): Split => ({
@@ -152,5 +161,66 @@ describe("byTicker", () => {
     expect(g.get("X")!.map((s) => s.executionDate)).toEqual(["2025-01-01", "2026-01-01"]);
     expect(g.get("Y")).toHaveLength(1);
     expect(g.get("Z")).toBeUndefined();
+  });
+});
+
+describe("pendingRefetches", () => {
+  const splits = [
+    split("AAA", "2026-05-01", 1, 10),
+    split("AAA", "2026-02-01", 1, 2),
+    split("BBB", "2026-03-01", 20, 1),
+    split("CCC", "2026-04-01", 1, 4),
+  ];
+  const held = new Set(["AAA", "BBB"]);
+
+  it("returns work for tickers we hold bars for", () => {
+    const out = pendingRefetches(splits, new Set(), held);
+    expect(out.map(splitKey)).toEqual([
+      "AAA|2026-02-01",
+      "BBB|2026-03-01",
+      "AAA|2026-05-01",
+    ]);
+  });
+
+  it("skips splits already handled", () => {
+    const out = pendingRefetches(splits, new Set(["AAA|2026-02-01"]), held);
+    expect(out.map(splitKey)).toEqual(["BBB|2026-03-01", "AAA|2026-05-01"]);
+  });
+
+  /**
+   * The rule this exists to honour: a completeness check must ask whether each
+   * unit is done, not how far the work got. A watermark would treat an older
+   * split discovered later as already handled and skip it forever.
+   */
+  it("still returns an older split discovered after a newer one was handled", () => {
+    const out = pendingRefetches(splits, new Set(["AAA|2026-05-01"]), held);
+    expect(out.map(splitKey)).toContain("AAA|2026-02-01");
+  });
+
+  it("ignores tickers we store no bars for", () => {
+    expect(pendingRefetches(splits, new Set(), held).some((s) => s.ticker === "CCC")).toBe(false);
+  });
+
+  it("is empty when everything is done", () => {
+    const all = new Set(splits.map(splitKey));
+    expect(pendingRefetches(splits, all, held)).toEqual([]);
+  });
+});
+
+describe("refetchTargets", () => {
+  it("collapses to one entry per ticker at its OLDEST pending split", () => {
+    const out = refetchTargets([
+      split("AAA", "2026-05-01", 1, 10),
+      split("AAA", "2026-02-01", 1, 2),
+      split("BBB", "2026-03-01", 20, 1),
+    ]);
+    expect(out).toEqual([
+      { ticker: "AAA", since: "2026-02-01" },
+      { ticker: "BBB", since: "2026-03-01" },
+    ]);
+  });
+
+  it("is empty for no pending work", () => {
+    expect(refetchTargets([])).toEqual([]);
   });
 });

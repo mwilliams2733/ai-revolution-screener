@@ -95,6 +95,44 @@ export function tickersNeedingRefetch(
   return [...stale].sort();
 }
 
+/** Key identifying one split, for the handled-ledger. */
+export const splitKey = (s: Split): string => `${s.ticker}|${s.executionDate}`;
+
+/**
+ * Splits whose price history has not yet been re-fetched.
+ *
+ * A SET DIFFERENCE, deliberately, not a watermark. A high-water date would
+ * assume every split before it was handled, and one failed re-fetch in the
+ * middle would be silently skipped forever. Asking "is this particular split
+ * done?" survives an interrupted run, a newly discovered split with an older
+ * execution date, and a ticker whose bars arrive later than its split.
+ *
+ * @param held tickers we actually store bars for; the rest need no work
+ */
+export function pendingRefetches(
+  splits: readonly Split[],
+  handled: ReadonlySet<string>,
+  held: ReadonlySet<string>,
+): Split[] {
+  return splits
+    .filter((s) => held.has(s.ticker) && !handled.has(splitKey(s)))
+    .sort((a, b) => Date.parse(a.executionDate) - Date.parse(b.executionDate));
+}
+
+/** One entry per ticker needing work, with its oldest pending split. */
+export function refetchTargets(pending: readonly Split[]): { ticker: string; since: string }[] {
+  const oldest = new Map<string, string>();
+  for (const s of pending) {
+    const prev = oldest.get(s.ticker);
+    if (prev == null || Date.parse(s.executionDate) < Date.parse(prev)) {
+      oldest.set(s.ticker, s.executionDate);
+    }
+  }
+  return [...oldest].map(([ticker, since]) => ({ ticker, since })).sort(
+    (a, b) => a.ticker.localeCompare(b.ticker),
+  );
+}
+
 /** Group a flat split list by ticker, for per-name lookup. */
 export function byTicker(splits: readonly Split[]): Map<string, Split[]> {
   const out = new Map<string, Split[]>();
