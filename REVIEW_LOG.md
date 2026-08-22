@@ -7,6 +7,47 @@ Run `npm run audit` to re-check everything below mechanically.
 
 ---
 
+## 2026-08-22 — history extended to 500 sessions, tier_history reconstructed
+
+**Storage first.** The 250-session backfill had consumed 487 MB of Neon's
+512 MB free tier — 97% — because it stored all ~12,000 tickers per session, of
+which ~82% are sub-$5 shells that can never reach the screen. Pruning to names
+that cleared the liquidity gate on at least 10 sessions took it to **176 MB**.
+The irreplaceable part, the `tickers` table with 6,584 delisted names, is 2 MB
+and was untouched.
+
+Extended to **500 sessions** (2024-08-23 → 2026-08-21), storing only tracked
+names: 2.34M bars, **379 MB, 74% of the tier**.
+
+**tier_history reconstructed** by replaying the screen against stored bars:
+248 sessions, 25,958 rows, in one minute. Validated against the live screen for
+the current session: **100 of 104 tiers agree**, and all four differences
+reconcile to one cause — the replay omits the fundamental gate (2 demotions),
+which frees 2 slots that the top-10 cap refills (2 promotions).
+
+The gate is omitted deliberately: EDGAR returns TODAY's filings, so applying it
+to a 2025 session would decide that session with results published months later.
+The theme map is also today's, which is survivorship bias in the theme dimension
+and cannot be fixed without a versioned map.
+
+### The finding this produced
+
+**Annualised turnover is 1,177%** across 248 sessions — roughly **5 tier changes
+per session across ~105 names**, or a name changing tier about every three
+weeks. METRICS_SPEC flags anything above 200% as cutoffs "chasing noise rather
+than tracking a regime". This is nearly six times that.
+
+The move distribution shows why: Hold→Buy 443 and Buy→Hold 426 are almost
+perfectly balanced, as are Strong Buy→Buy 183 and Buy→Strong Buy 182. Names are
+not migrating in a direction; they are oscillating across hard percentile
+boundaries. That is a property of step-function cutoffs at 55 and 80, not of the
+market.
+
+Worth considering: hysteresis (a name must cross further to change tier than to
+keep one), or a minimum time-in-tier.
+
+---
+
 ## 2026-08-22 (later) — alerts, columns, docs
 
 **Step 8 shipped.** Tier-change alerts over Gmail SMTP, using the app password

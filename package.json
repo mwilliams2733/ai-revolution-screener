@@ -13,7 +13,8 @@
     "backfill": "tsx --env-file=.env.local scripts/backfill.ts",
     "verify:screen": "tsx --env-file=.env.local scripts/verify-screen.ts",
     "audit:data": "tsx --env-file-if-exists=.env.local scripts/audit.ts",
-    "audit": "npm run typecheck && npm run test && npm run audit:data"
+    "audit": "npm run typecheck && npm run test && npm run audit:data",
+    "replay": "tsx --env-file=.env.local scripts/replay-tiers.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
