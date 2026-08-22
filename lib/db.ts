@@ -318,6 +318,8 @@ export interface TierRow {
   readonly rsPct: number | null;
   readonly vsMa: number;
   readonly tier: string | null;
+  /** Tier before the demoting overlays; what hysteresis compares against. */
+  readonly momentumTier?: string | null;
   readonly weight: number;
 }
 
@@ -331,19 +333,21 @@ export async function upsertTierHistory(
   let n = 0;
   for (const batch of chunk(rows, CHUNK)) {
     await sql`
-      INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, weight)
+      INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
       SELECT ${session}::date, * FROM UNNEST(
         ${batch.map((r) => r.ticker)}::text[],
         ${batch.map((r) => r.rsPct)}::float8[],
         ${batch.map((r) => r.vsMa)}::float8[],
         ${batch.map((r) => r.tier)}::text[],
+        ${batch.map((r) => r.momentumTier ?? null)}::text[],
         ${batch.map((r) => r.weight)}::float8[]
-      ) AS t(ticker, rs_pct, vs_ma, tier, weight)
+      ) AS t(ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
       ON CONFLICT (session, ticker) DO UPDATE SET
-        rs_pct = EXCLUDED.rs_pct,
-        vs_ma  = EXCLUDED.vs_ma,
-        tier   = EXCLUDED.tier,
-        weight = EXCLUDED.weight
+        rs_pct        = EXCLUDED.rs_pct,
+        vs_ma         = EXCLUDED.vs_ma,
+        tier          = EXCLUDED.tier,
+        momentum_tier = EXCLUDED.momentum_tier,
+        weight        = EXCLUDED.weight
     `;
     n += batch.length;
   }
@@ -391,6 +395,29 @@ export async function previousTiers(session: string): Promise<Map<string, string
 
   const rows = (await sql`
     SELECT ticker, tier FROM tier_history WHERE session = ${prev[0].session}::date
+  `) as { ticker: string; tier: string | null }[];
+  return new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
+}
+
+/**
+ * The previous session's PRE-overlay tiers, for hysteresis.
+ *
+ * Falls back to the final tier on rows written before momentum_tier existed, so
+ * the band still works over reconstructed history rather than silently doing
+ * nothing for the first thirty sessions.
+ */
+export async function previousMomentumTiers(session: string): Promise<Map<string, string>> {
+  const sql = client();
+  const prev = (await sql`
+    SELECT session::text AS session FROM tier_history
+    WHERE session < ${session}::date
+    ORDER BY session DESC LIMIT 1
+  `) as { session: string }[];
+  if (prev.length === 0) return new Map();
+
+  const rows = (await sql`
+    SELECT ticker, COALESCE(momentum_tier, tier) AS tier
+    FROM tier_history WHERE session = ${prev[0].session}::date
   `) as { ticker: string; tier: string | null }[];
   return new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
 }

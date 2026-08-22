@@ -113,6 +113,11 @@ CREATE TABLE IF NOT EXISTS tier_history (
   rs_pct   DOUBLE PRECISION,
   vs_ma    DOUBLE PRECISION,
   tier     TEXT,                             -- 'Strong Buy' | 'Buy' | 'Hold'
+  -- The tier before the stage, fundamental and cap overlays. Hysteresis
+  -- compares against this, not the final tier: the overlays only ever demote,
+  -- so comparing a capped tier to a fresh momentum tier would read every cap as
+  -- a change and defeat the band.
+  momentum_tier TEXT,
   weight   DOUBLE PRECISION NOT NULL DEFAULT 0,
   PRIMARY KEY (session, ticker)
 );

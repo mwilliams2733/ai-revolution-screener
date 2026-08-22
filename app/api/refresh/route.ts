@@ -126,6 +126,8 @@ async function handle(req: Request) {
       rsPct: r.rsPct,
       vsMa: r.vsMa,
       tier: r.tier,
+      // The pre-overlay tier, so tomorrow's hysteresis compares like with like.
+      momentumTier: r.momentumTier,
       weight: r.weight,
     }));
     // Read the previous session's tiers BEFORE writing today's, or the diff

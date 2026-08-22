@@ -16,6 +16,7 @@ import {
 } from "./polygon";
 import { barsByTicker } from "./factors";
 import {
+  previousMomentumTiers,
   loadTierHistory,
   loadTrendHistory,
   loadCloseHistory,
@@ -32,6 +33,7 @@ import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
 import { applyStageRule, stageDemotedCount, type StageFields } from "./stage-overlay";
+import { applyHysteresis, heldCount, type HysteresisFields } from "./hysteresis";
 import {
   HISTORY_WINDOW,
   summariseTierHistory,
@@ -44,7 +46,7 @@ import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./funda
 import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
 import { runScreen, DEFAULT_PARAMS } from "./index";
 import { exclusionReason, themeUniverse } from "./theme";
-import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots } from "./types";
+import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots, Tier } from "./types";
 import { isoDaysAgo } from "./dates";
 
 const ANCHOR_LABELS: readonly AnchorLabel[] = ["r1m", "r3m", "r6m", "r12m"] as const;
@@ -119,7 +121,7 @@ async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
 export const STRONG_BUY_LIMIT = 10;
 
 /** A screen row carrying the day's open alongside the close. */
-export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFields {
+export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFields, HysteresisFields {
   /** Day, week and month price changes. */
   readonly changes: PeriodChanges;
   /** Whether vsMa came from a real rolling mean or the five-point proxy. */
@@ -142,6 +144,8 @@ export interface ScreenPayload {
   readonly capped: number;
   /** How many were capped by the Weinstein stage rule. */
   readonly stageDemoted: number;
+  /** How many kept a tier they would otherwise have flipped out of. */
+  readonly held: number;
   /** Concentration and correlation across the selected book. */
   readonly risk: PortfolioRisk;
   /** Tier stability over the recorded nights. */
@@ -410,12 +414,22 @@ async function computeScreen(): Promise<ScreenPayload> {
     names,
   });
 
+  // Hysteresis sits between the momentum tier and the demoting overlays: it
+  // adjusts the tier a name is entitled to, and the overlays then cap it.
+  const priorTiers = dbConfigured()
+    ? await previousMomentumTiers(dates.now as string).catch((e: unknown) => {
+        loadWarnings.push(`prior tiers: ${e instanceof Error ? e.message : String(e)}`);
+        return new Map<string, string>();
+      })
+    : new Map<string, string>();
+
   // True moving averages FIRST: they change vsMa, which re-decides the tier,
   // which decides who the fundamental gate and the cap even consider.
   loadWarnings.length = 0;
   const themedTickers = themed.map((r) => r.ticker);
   const history = await loadHistory(themedTickers);
-  const trended = applyTrueMa(themed, history);
+  const withMa = applyTrueMa(themed, history);
+  const trended = applyHysteresis(withMa, priorTiers as ReadonlyMap<string, Tier>);
 
   // Stage needs the trend history, and the stage rule must run before the
   // fundamental gate and the cap: a topping name should not consume one of the
@@ -460,6 +474,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     history: await loadHistorySummary(),
     capped: cappedCount(limited),
     stageDemoted: stageDemotedCount(stageRuled),
+    held: heldCount(trended),
     strongBuyLimit: STRONG_BUY_LIMIT,
     vetoed: collectVetoed(ranked, new Set(names.keys())),
     meta: {

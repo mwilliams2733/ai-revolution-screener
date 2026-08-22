@@ -33,8 +33,9 @@ import { applyTrueMa, MA_WINDOW } from "../lib/moving-average";
 import { applyStageRule } from "../lib/stage-overlay";
 import { applyTrend } from "../lib/trend-overlay";
 import { capStrongBuy } from "../lib/strong-buy-cap";
+import { applyHysteresis } from "../lib/hysteresis";
 import { STRONG_BUY_LIMIT } from "../lib/screen-service";
-import type { Snapshots } from "../lib/types";
+import type { Snapshots, Tier } from "../lib/types";
 
 const arg = (name: string): string | undefined => {
   const i = process.argv.indexOf(`--${name}`);
@@ -165,8 +166,10 @@ async function main(): Promise<void> {
     return out;
   }
 
-  // --- replay, newest first so a partial run covers the useful end ---
-  const order = [...replayable].reverse();
+  // --- replay OLDEST first: hysteresis is stateful, so each session needs the
+  // previous session's momentum tier, carried forward in memory. ---
+  const order = [...replayable];
+  let prior = new Map<string, Tier>();
   let done = 0;
   let written = 0;
 
@@ -192,7 +195,8 @@ async function main(): Promise<void> {
     }
 
     // Same order as production, minus the fundamental gate.
-    const trended = applyTrueMa(themed, closeHistory);
+    const withMa = applyTrueMa(themed, closeHistory);
+    const trended = applyHysteresis(withMa, prior);
     const staged = applyTrend(trended, trendHistory);
     const ruled = applyStageRule(staged);
     const capped = capStrongBuy(
@@ -200,11 +204,19 @@ async function main(): Promise<void> {
       STRONG_BUY_LIMIT,
     );
 
+    // The momentum tier AFTER hysteresis is what the next session compares
+    // against; feeding it the capped tier would read every cap as a change.
+    prior = new Map(
+      trended.filter((r) => r.tier != null).map((r) => [r.ticker, r.tier as Tier]),
+    );
+
+    const momentum = new Map(trended.map((r) => [r.ticker, r.tier]));
     const rows = capped.map((r) => ({
       ticker: r.ticker,
       rsPct: r.rsPct,
       vsMa: r.vsMa,
       tier: r.tier,
+      momentumTier: momentum.get(r.ticker) ?? null,
       weight: r.weight,
     }));
 
@@ -213,17 +225,19 @@ async function main(): Promise<void> {
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
       await sql`
-        INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, weight)
+        INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
         SELECT ${session}::date, * FROM UNNEST(
           ${batch.map((r) => r.ticker)}::text[],
           ${batch.map((r) => r.rsPct)}::float8[],
           ${batch.map((r) => r.vsMa)}::float8[],
           ${batch.map((r) => r.tier)}::text[],
+          ${batch.map((r) => r.momentumTier)}::text[],
           ${batch.map((r) => r.weight)}::float8[]
-        ) AS t(ticker, rs_pct, vs_ma, tier, weight)
+        ) AS t(ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
         ON CONFLICT (session, ticker) DO UPDATE SET
           rs_pct = EXCLUDED.rs_pct, vs_ma = EXCLUDED.vs_ma,
-          tier = EXCLUDED.tier, weight = EXCLUDED.weight
+          tier = EXCLUDED.tier, momentum_tier = EXCLUDED.momentum_tier,
+          weight = EXCLUDED.weight
       `;
       written += batch.length;
     }
