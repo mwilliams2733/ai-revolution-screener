@@ -7,6 +7,38 @@ Run `npm run audit` to re-check everything below mechanically.
 
 ---
 
+## 2026-08-22 (later) — alerts, columns, docs
+
+**Step 8 shipped.** Tier-change alerts over Gmail SMTP, using the app password
+already in the environment rather than adding Resend. Verified with one real
+test message. Silent on the first run by design: with no baseline every name
+reads as "entered", and 104 arrival notices on day one would teach the reader to
+ignore the alerts.
+
+Env vars are `ALERT_TO` / `ALERTS_ENABLED`, deliberately NOT the shared
+`EMAIL_TO` / `EMAIL_ENABLED` which belong to another project and where
+`EMAIL_ENABLED` is false. Inheriting them would have made this app silently
+never send.
+
+**Day, week and month changes added.** Day is close against the PREVIOUS CLOSE,
+matching every quote screen; close-vs-open is a materially different number
+(AXTI: -3.3% day, -6.2% intraday, because it gapped up overnight) and is
+reported separately in the expander.
+
+**Sector filter is multi-select**, and `README.md` plus an in-app legend now
+document every column.
+
+### Open
+
+- `mlwilliams1236@gmail.com` is in `ALLOWED_EMAILS` and deployed but NOT in the
+  Cloudflare Access policy, so it still cannot log in. Browser automation of the
+  Zero Trust pages failed repeatedly (screenshot CDP faults); needs a hand edit
+  or an API token.
+- Mobile layout at 390px remains visually unverified, for the same reason. Five
+  fields were just added to each row, so this matters more than it did.
+
+---
+
 ## 2026-08-22 — database connected, backfill run
 
 Neon Postgres provisioned. Schema applied, 250 sessions backfilled: **2.98M
