@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { CAP_MARGIN } from "@/lib/strong-buy-cap";
 import { STRONG_BUY_LIMIT, type PricedRow, type ScreenPayload, type VetoedRow } from "@/lib/screen-service";
 import CompanyTooltip from "./company-tooltip";
 import type { ScreenRow, Tier } from "@/lib/types";
@@ -387,11 +388,23 @@ function DataRow({
             <span>Held down — {row.stageReason}</span>
           </div>
         )}
-        {/* Capped names met every rule; only rank position kept them out. */}
+        {/* Capped names met every rule; only rank position kept them out. The
+            second line fires when the incumbency margin, not raw rank, decided
+            it -- otherwise a name would appear to lose on rank while sitting
+            visibly above the name that kept the slot. */}
         {isPriced(row) && row.capped && (
           <div className="gate-note cap">
             <span className="gate-dot" aria-hidden="true" />
-            <span>Meets every Strong Buy rule, outside the top {STRONG_BUY_LIMIT} by rank</span>
+            <span>
+              Meets every Strong Buy rule, outside the top {STRONG_BUY_LIMIT} by rank
+              {row.capHeld && ` — within ${CAP_MARGIN} points of the last slot, held by the incumbent`}
+            </span>
+          </div>
+        )}
+        {isPriced(row) && row.capHeld && !row.capped && (
+          <div className="gate-note cap">
+            <span className="gate-dot" aria-hidden="true" />
+            <span>Kept the last Strong Buy slot on incumbency, within {CAP_MARGIN} points</span>
           </div>
         )}
         {isPriced(row) && row.gate === "unverified" && row.tier === "Strong Buy" && (

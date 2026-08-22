@@ -36,7 +36,11 @@ A tier can be **held down** for three reasons, each shown under the row:
 - *"Momentum Strong Buy, held at Buy"* — it ranked highly on price but its
   revenue growth is decelerating **and** its operating margin is compressing.
 - *"Meets every Strong Buy rule, outside the top 10 by rank"* — it passed
-  everything, but only the ten highest-ranked names hold the top tier.
+  everything, but only the ten highest-ranked names hold the top tier. A
+  challenger has to beat the name in the last slot by **2 percentile points**
+  to take it; inside that margin the incumbent keeps the slot and both rows say
+  so. Without the margin the names at ranks 10 and 11 swapped almost daily,
+  which was the single largest source of tier churn in the whole ruleset.
 
 The three run in that order, which matters: a topping name is capped **before**
 the top-10 cut, so it cannot occupy a Strong Buy slot on its way down. One
@@ -95,7 +99,7 @@ sessions, so a holiday week still compares like with like.
 
 | Figure | Meaning |
 |---|---|
-| **Annualised turnover** | Tier changes per position per year, from the recorded nights. Above ~200% suggests the cutoffs are chasing noise rather than tracking a regime. |
+| **Annualised turnover** | Tier changes per position per year, from the recorded nights. Above ~200% suggests the cutoffs are chasing noise rather than tracking a regime. Measured over 248 reconstructed sessions it is **758%**, down from 1,177% before the two stickiness rules — still well above target, and the remaining churn has not been diagnosed. |
 | **Median time in tier** | How many consecutive sessions a typical name has held its current tier. |
 | **Recent moves** | Every tier change in the recorded window, newest first. |
 | **Least stable** | The names flipping fastest. A name changing tier every few sessions is a signal-quality problem, not a trading opportunity. |

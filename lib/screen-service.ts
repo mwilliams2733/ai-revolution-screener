@@ -17,6 +17,7 @@ import {
 import { barsByTicker } from "./factors";
 import {
   previousMomentumTiers,
+  previousTiers,
   loadTierHistory,
   loadTrendHistory,
   loadCloseHistory,
@@ -43,7 +44,7 @@ import type { TrendBar } from "./trend-template";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
-import { capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
+import { capHeldCount, capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
 import { runScreen, DEFAULT_PARAMS } from "./index";
 import { exclusionReason, themeUniverse } from "./theme";
 import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots, Tier } from "./types";
@@ -142,6 +143,8 @@ export interface ScreenPayload {
   readonly demoted: number;
   /** How many cleared every rule but fell outside the top N. */
   readonly capped: number;
+  /** How many top-N slots were decided by incumbency rather than raw rank. */
+  readonly capHeld: number;
   /** How many were capped by the Weinstein stage rule. */
   readonly stageDemoted: number;
   /** How many kept a tier they would otherwise have flipped out of. */
@@ -423,6 +426,19 @@ async function computeScreen(): Promise<ScreenPayload> {
       })
     : new Map<string, string>();
 
+  // Incumbents for the cap are last session's FINAL Strong Buys -- who actually
+  // held a slot -- which is a different question from the momentum tier the
+  // band above works on.
+  const priorFinal = dbConfigured()
+    ? await previousTiers(dates.now as string).catch((e: unknown) => {
+        loadWarnings.push(`prior final tiers: ${e instanceof Error ? e.message : String(e)}`);
+        return new Map<string, string>();
+      })
+    : new Map<string, string>();
+  const incumbents = new Set(
+    [...priorFinal].filter(([, t]) => t === "Strong Buy").map(([ticker]) => ticker),
+  );
+
   // True moving averages FIRST: they change vsMa, which re-decides the tier,
   // which decides who the fundamental gate and the cap even consider.
   loadWarnings.length = 0;
@@ -445,7 +461,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   // Cap AFTER the gate: the gate removes names that do not deserve the tier on
   // merit, then the cap takes the best of what is left. Reversed, a decelerating
   // name would burn a slot on its way out.
-  const limited = capStrongBuy(overlaid, STRONG_BUY_LIMIT);
+  const limited = capStrongBuy(overlaid, STRONG_BUY_LIMIT, undefined, incumbents);
 
   // Volume metrics grade against the FULL ranked universe, never the theme.
   const volumeBars = await loadVolumeBars();
@@ -473,6 +489,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     risk: portfolioRisk(portfolio, history),
     history: await loadHistorySummary(),
     capped: cappedCount(limited),
+    capHeld: capHeldCount(limited),
     stageDemoted: stageDemotedCount(stageRuled),
     held: heldCount(trended),
     strongBuyLimit: STRONG_BUY_LIMIT,

@@ -170,6 +170,8 @@ async function main(): Promise<void> {
   // previous session's momentum tier, carried forward in memory. ---
   const order = [...replayable];
   let prior = new Map<string, Tier>();
+  // Last session's final Strong Buys, for the cap's incumbency margin.
+  let incumbents = new Set<string>();
   let done = 0;
   let written = 0;
 
@@ -202,12 +204,18 @@ async function main(): Promise<void> {
     const capped = capStrongBuy(
       ruled.map((r) => ({ ...r, momentumTier: r.tier, gate: "unverified" as const, gateReason: "not replayed" })),
       STRONG_BUY_LIMIT,
+      undefined,
+      incumbents,
     );
 
     // The momentum tier AFTER hysteresis is what the next session compares
     // against; feeding it the capped tier would read every cap as a change.
     prior = new Map(
       trended.filter((r) => r.tier != null).map((r) => [r.ticker, r.tier as Tier]),
+    );
+
+    incumbents = new Set(
+      capped.filter((r) => r.tier === "Strong Buy").map((r) => r.ticker),
     );
 
     const momentum = new Map(trended.map((r) => [r.ticker, r.tier]));
