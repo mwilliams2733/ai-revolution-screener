@@ -17,11 +17,14 @@ import {
   finishRun,
   insertBars,
   missingSessions,
+  previousTiers,
   recordSession,
   startRun,
   upsertTierHistory,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
+import { diffTiers, formatAlert, shouldSend } from "@/lib/alerts";
+import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { isoDaysAgo } from "@/lib/dates";
 
@@ -125,7 +128,44 @@ async function handle(req: Request) {
       tier: r.tier,
       weight: r.weight,
     }));
+    // Read the previous session's tiers BEFORE writing today's, or the diff
+    // would compare today against itself.
+    const previous = await previousTiers(screen.asOf);
     const snapshotted = await upsertTierHistory(screen.asOf, tierRows);
+
+    const changes = diffTiers(
+      previous,
+      screen.themed.map((r) => ({
+        ticker: r.ticker,
+        tier: r.tier,
+        rsPct: r.rsPct,
+        vsMa: r.vsMa,
+      })),
+    );
+
+    const mail = readMailConfig();
+    let alert: Record<string, unknown> = { sent: false, reason: "no mail config" };
+    if (mail) {
+      const send = shouldSend(changes, {
+        hasBaseline: previous.size > 0,
+        enabled: mail.enabled,
+      });
+      if (!send) {
+        alert = {
+          sent: false,
+          reason: !mail.enabled
+            ? "ALERTS_ENABLED is not true"
+            : previous.size === 0
+              ? "no baseline yet - first run records it silently"
+              : "no tier changes",
+          changes: changes.length,
+        };
+      } else {
+        const { subject, text, html } = formatAlert(changes, screen.asOf);
+        const result = await sendMail(mail, subject, text, html);
+        alert = { ...result, changes: changes.length, subject };
+      }
+    }
 
     await finishRun(runId, sessionsAdded, barsAdded, true);
 
@@ -136,6 +176,8 @@ async function handle(req: Request) {
       emptyRetried: retried,
       barsAdded,
       tiersSnapshotted: snapshotted,
+      tierChanges: changes.length,
+      alert,
       remaining: Math.max(0, (await missingSessions(recent)).length),
     });
   } catch (e) {
