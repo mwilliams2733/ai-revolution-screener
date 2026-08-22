@@ -48,6 +48,27 @@ const isPriced = (r: Row): r is PricedRow => "gate" in r;
 
 
 
+/**
+ * Runway in the largest unit that still says something.
+ *
+ * AXTI barely burns, so the arithmetic gives 869 months. Seventy-two years is
+ * accurate and useless: a figure that looks like a bug makes the reader
+ * distrust the figures that are not. Above ten years the exact number carries
+ * no information the reader can act on, so it stops being quoted.
+ */
+function runwayLabel(months: number): string {
+  if (months < 24) return `${Math.round(months)} months`;
+  if (months >= 120) return "10+ years";
+  return `${(months / 12).toFixed(1)} years`;
+}
+
+/** Market cap in the unit a reader thinks in: $4.6B, not $4639M. */
+function bigMoney(v: number): string {
+  if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+  return `$${(v / 1e6).toFixed(0)}M`;
+}
+
 function sectorLabel(s: string): string {
   return s.replace(/_/g, " ");
 }
@@ -237,8 +258,8 @@ function RowDetail({ row }: { row: Row }) {
                     <span className="detail-note">funds itself</span>
                   ) : (
                     <>
-                      {priced.health.runway.toFixed(0)}
-                      <span className="detail-note"> months at the current burn</span>
+                      {runwayLabel(priced.health.runway)}
+                      <span className="detail-note"> at the current burn</span>
                     </>
                   )}
                 </dd>
@@ -246,9 +267,7 @@ function RowDetail({ row }: { row: Row }) {
               <div>
                 <dt>Market cap</dt>
                 <dd className="num">
-                  {priced.health.marketCap == null
-                    ? MISSING
-                    : money(priced.health.marketCap / 1e6) + "M"}
+                  {priced.health.marketCap == null ? MISSING : bigMoney(priced.health.marketCap)}
                 </dd>
               </div>
             </>
@@ -414,11 +433,20 @@ function DataRow({
           </div>
         )}
         {/* A demoted name keeps its momentum rank on screen; the gate explains
-            why it is not a Strong Buy rather than silently reshuffling it. */}
-        {isPriced(row) && row.momentumTier === "Strong Buy" && row.tier !== "Strong Buy" && (
+            why it is not a Strong Buy rather than silently reshuffling it.
+            Conditioned on the gate's OWN verdict, not on the tier having
+            moved. Inferring it from "momentum Strong Buy but not Strong Buy
+            now" was true whenever ANY overlay demoted the row, so AXTI --
+            capped at Hold by the balance-sheet guardrails -- claimed the gate
+            had held it at Buy and quoted the gate's PASSING reason as the
+            explanation. Three overlays can demote a Strong Buy; each must
+            speak only for itself. */}
+        {isPriced(row) && row.gate === "demote" && (
           <div className="gate-note">
             <span className="gate-dot" aria-hidden="true" />
-            <span>Momentum Strong Buy, held at Buy — {row.gateReason}</span>
+            <span>
+              Momentum Strong Buy, held at {row.tier ?? MISSING} — {row.gateReason}
+            </span>
           </div>
         )}
         {/* A late-stage chart caps the tier regardless of momentum rank. */}
