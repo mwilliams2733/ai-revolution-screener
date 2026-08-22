@@ -109,10 +109,29 @@ async function main(): Promise<void> {
     series[at] = Number(b.close);
   }
 
+  // Provenance up front, because it decides what the numbers below are worth.
+  // A replayed session is reconstructed with today's theme map, over a universe
+  // pruned with today's knowledge, and without the fundamental gate. A live one
+  // is a real out-of-sample observation.
+  const split = (await sql`
+    SELECT source, count(DISTINCT session) AS sessions
+    FROM tier_history GROUP BY source
+  `) as { source: string; sessions: string }[];
+  const live = Number(split.find((r) => r.source === "live")?.sessions ?? 0);
+  const replayed = Number(split.find((r) => r.source === "replay")?.sessions ?? 0);
+
   console.log(
     `\ntier_history: ${sessions.length} sessions, ${sessions[0]} -> ${sessions[sessions.length - 1]}\n` +
-      `names: ${new Set(rows.map((r) => r.ticker)).size}   benchmark: ${BENCHMARK}\n`,
+      `names: ${new Set(rows.map((r) => r.ticker)).size}   benchmark: ${BENCHMARK}\n` +
+      `provenance: ${replayed} replayed, ${live} live (out-of-sample)\n`,
   );
+
+  if (live === 0) {
+    console.log(
+      "Everything below is in-sample reconstruction. No out-of-sample evidence\n" +
+        "exists yet; the nightly refresh adds one session a weekday.\n",
+    );
+  }
 
   const missing = [BENCHMARK, ...ALSO].filter((t) => !closes.has(t));
   if (missing.length) console.log(`no bars for: ${missing.join(", ")}\n`);

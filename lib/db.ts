@@ -333,8 +333,8 @@ export async function upsertTierHistory(
   let n = 0;
   for (const batch of chunk(rows, CHUNK)) {
     await sql`
-      INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
-      SELECT ${session}::date, * FROM UNNEST(
+      INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight, source)
+      SELECT ${session}::date, *, 'live' FROM UNNEST(
         ${batch.map((r) => r.ticker)}::text[],
         ${batch.map((r) => r.rsPct)}::float8[],
         ${batch.map((r) => r.vsMa)}::float8[],
@@ -347,7 +347,10 @@ export async function upsertTierHistory(
         vs_ma         = EXCLUDED.vs_ma,
         tier          = EXCLUDED.tier,
         momentum_tier = EXCLUDED.momentum_tier,
-        weight        = EXCLUDED.weight
+        weight        = EXCLUDED.weight,
+        -- A live row promotes a replayed one. The refresh has better
+        -- information than any reconstruction of the same day.
+        source        = 'live'
     `;
     n += batch.length;
   }
@@ -377,26 +380,53 @@ export async function loadTierHistory(days: number): Promise<
   return rows;
 }
 
+/** How a stored tier row was produced. See db/schema.sql. */
+export type TierSource = "live" | "replay";
+
+export interface TierSnapshot {
+  readonly session: string;
+  /**
+   * Provenance of the snapshot as a whole.
+   *
+   * A session counts as "live" only when EVERY row in it is live. A part-live
+   * session means a replay overwrote some of it or a refresh died halfway, and
+   * either way it is not sound evidence to diff against.
+   */
+  readonly source: TierSource;
+  readonly tiers: Map<string, string>;
+}
+
 /**
- * The most recent stored screen BEFORE `session`, as ticker -> tier.
+ * The most recent stored screen BEFORE `session`, with its provenance.
  *
  * Deliberately "the latest session that exists earlier", not "yesterday": after
  * a long weekend or a missed cron run there is no row for yesterday, and
  * comparing against an empty map would report every position as newly changed.
+ *
+ * Returns null when there is nothing earlier at all, which the caller must
+ * treat as "record silently" rather than as "everything changed".
  */
-export async function previousTiers(session: string): Promise<Map<string, string>> {
+export async function previousTiers(session: string): Promise<TierSnapshot | null> {
   const sql = client();
   const prev = (await sql`
-    SELECT session::text AS session FROM tier_history
+    SELECT session::text AS session,
+           bool_and(source = 'live') AS all_live
+    FROM tier_history
     WHERE session < ${session}::date
+    GROUP BY session
     ORDER BY session DESC LIMIT 1
-  `) as { session: string }[];
-  if (prev.length === 0) return new Map();
+  `) as { session: string; all_live: boolean }[];
+  if (prev.length === 0) return null;
 
   const rows = (await sql`
     SELECT ticker, tier FROM tier_history WHERE session = ${prev[0].session}::date
   `) as { ticker: string; tier: string | null }[];
-  return new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
+
+  return {
+    session: prev[0].session,
+    source: prev[0].all_live ? "live" : "replay",
+    tiers: new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string])),
+  };
 }
 
 /**

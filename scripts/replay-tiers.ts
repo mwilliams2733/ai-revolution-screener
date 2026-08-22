@@ -20,6 +20,14 @@
  * row therefore reflects slightly looser rules than a live one, and rows are
  * marked so nobody later mistakes one for the other.
  *
+ * NEVER OVERWRITTEN: rows the nightly refresh wrote live. Those are the only
+ * genuinely out-of-sample evidence this project will ever have -- one honest
+ * observation per session, accumulating forward -- and a reconstruction of the
+ * same day is strictly worse information. The guarded ON CONFLICT below leaves
+ * them alone, so this script is safe to re-run as often as you like without
+ * eroding the live record. It is also what stops a rerun from turning the next
+ * refresh's alert into a diff between two rulesets.
+ *
  * Also approximate: the theme map and the crowding veto are today's. A name
  * added to the theme last month appears throughout the reconstructed history.
  * That is survivorship bias in the theme dimension and cannot be fixed without
@@ -233,8 +241,8 @@ async function main(): Promise<void> {
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
       await sql`
-        INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
-        SELECT ${session}::date, * FROM UNNEST(
+        INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight, source)
+        SELECT ${session}::date, *, 'replay' FROM UNNEST(
           ${batch.map((r) => r.ticker)}::text[],
           ${batch.map((r) => r.rsPct)}::float8[],
           ${batch.map((r) => r.vsMa)}::float8[],
@@ -246,6 +254,7 @@ async function main(): Promise<void> {
           rs_pct = EXCLUDED.rs_pct, vs_ma = EXCLUDED.vs_ma,
           tier = EXCLUDED.tier, momentum_tier = EXCLUDED.momentum_tier,
           weight = EXCLUDED.weight
+        WHERE tier_history.source <> 'live'
       `;
       written += batch.length;
     }

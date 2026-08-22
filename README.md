@@ -195,6 +195,27 @@ Three further readings worth knowing:
 No transaction costs are modelled. At 758% annualised turnover that omission is
 not small.
 
+### Live versus replayed history
+
+Every row in `tier_history` is stamped `live` or `replay`. A **live** row was
+computed by the nightly refresh from that day's data and nothing later; a
+**replay** row was reconstructed afterwards by `npm run replay`. The
+distinction is load-bearing twice:
+
+- **Alerts refuse to fire against a replayed baseline.** A replay runs a
+  slightly different ruleset — the fundamental gate is not replayed, because
+  applying today's EDGAR filings to a 2025 session is lookahead — so diffing
+  live against replayed reports the difference between two *rulesets* as if the
+  market had moved. That is exactly how two junk alerts went out.
+- **The replay will not overwrite a live row.** Live rows are the only
+  genuinely out-of-sample evidence this project will ever have, accumulating one
+  session per weekday. `npm run replay` is therefore safe to re-run as often as
+  you like; it fills gaps and never erodes the record.
+
+`npm run backtest` prints the split, and `npm run audit` warns while the live
+count is still too low to conclude anything. About 20 live sessions at a
+21-session horizon is where `UNDERPOWERED` starts to lift.
+
 ## Known quirks, deliberately left
 
 - **Ten Strong Buys at 7.43% each is a 74.3% sleeve**, not the published 52%.

@@ -23,7 +23,7 @@ import {
   upsertTierHistory,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
-import { diffTiers, formatAlert, shouldSend } from "@/lib/alerts";
+import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { isoDaysAgo } from "@/lib/dates";
@@ -136,7 +136,7 @@ async function handle(req: Request) {
     const snapshotted = await upsertTierHistory(screen.asOf, tierRows);
 
     const changes = diffTiers(
-      previous,
+      previous?.tiers ?? new Map(),
       screen.themed.map((r) => ({
         ticker: r.ticker,
         tier: r.tier,
@@ -148,19 +148,20 @@ async function handle(req: Request) {
     const mail = readMailConfig();
     let alert: Record<string, unknown> = { sent: false, reason: "no mail config" };
     if (mail) {
-      const send = shouldSend(changes, {
-        hasBaseline: previous.size > 0,
+      const ctx = {
+        hasBaseline: (previous?.tiers.size ?? 0) > 0,
+        baselineSource: previous?.source ?? null,
         enabled: mail.enabled,
-      });
+      };
+      const send = shouldSend(changes, ctx);
       if (!send) {
         alert = {
           sent: false,
-          reason: !mail.enabled
-            ? "ALERTS_ENABLED is not true"
-            : previous.size === 0
-              ? "no baseline yet - first run records it silently"
-              : "no tier changes",
+          // Derived from the same context shouldSend judged, so the stated
+          // reason cannot drift away from the actual decision.
+          reason: suppressionReason(changes, ctx),
           changes: changes.length,
+          baseline: previous ? `${previous.session} (${previous.source})` : null,
         };
       } else {
         const { subject, text, html } = formatAlert(changes, screen.asOf);

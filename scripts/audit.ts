@@ -13,6 +13,7 @@
  * loudly: a silent pass would be worse than a failure.
  */
 
+import { neon } from "@neondatabase/serverless";
 import { getScreen } from "../lib/screen-service";
 import { percentileRanks } from "../lib/factors";
 import { DEFAULT_PARAMS as P } from "../lib/params";
@@ -154,6 +155,40 @@ async function main(): Promise<void> {
     `${screen.meta.trendScored}/${screen.themed.length} rows have ${screen.meta.trendMinHistory} sessions`,
     true,
   );
+
+  // Soft: the out-of-sample record. Zero is correct until the next refresh
+  // runs, and it should only ever grow -- if it shrinks, a replay overwrote
+  // live rows and the guarded ON CONFLICT in scripts/replay-tiers.ts is broken.
+  if (process.env.DATABASE_URL) {
+    const sql = neon(process.env.DATABASE_URL);
+    const split = (await sql`
+      SELECT source, count(DISTINCT session) AS sessions
+      FROM tier_history GROUP BY source
+    `) as { source: string; sessions: string }[];
+    const live = Number(split.find((r) => r.source === "live")?.sessions ?? 0);
+    const replay = Number(split.find((r) => r.source === "replay")?.sessions ?? 0);
+    assert(
+      "out-of-sample sessions are accumulating",
+      live > 0,
+      `${live} live, ${replay} replayed. Only live sessions are evidence; ` +
+        `a 21-session horizon needs about 20 of them to leave UNDERPOWERED`,
+      true,
+    );
+
+    // A session that is part live and part replayed means something wrote over
+    // half of it. Neither figure can be trusted after that.
+    const mixed = (await sql`
+      SELECT count(*) AS n FROM (
+        SELECT session FROM tier_history
+        GROUP BY session HAVING count(DISTINCT source) > 1
+      ) t
+    `) as { n: string }[];
+    assert(
+      "no session mixes live and replayed rows",
+      Number(mixed[0].n) === 0,
+      Number(mixed[0].n) === 0 ? "every session has one provenance" : `${mixed[0].n} mixed sessions`,
+    );
+  }
 
   report(false, null);
 }

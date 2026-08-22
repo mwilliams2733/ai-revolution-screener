@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffTiers, formatAlert, shouldSend } from "./alerts";
+import { diffTiers, formatAlert, shouldSend, suppressionReason } from "./alerts";
 
 const prev = (pairs: [string, string][]) => new Map(pairs);
 
@@ -71,25 +71,25 @@ describe("shouldSend", () => {
       { ticker: "A", tier: "Buy", rsPct: 70, vsMa: 1 },
       { ticker: "B", tier: "Buy", rsPct: 71, vsMa: 1 },
     ]);
-    expect(shouldSend(changes, { hasBaseline: false, enabled: true })).toBe(false);
+    expect(shouldSend(changes, { hasBaseline: false, baselineSource: null, enabled: true })).toBe(false);
   });
 
   it("stays silent when nothing changed", () => {
-    expect(shouldSend([], { hasBaseline: true, enabled: true })).toBe(false);
+    expect(shouldSend([], { hasBaseline: true, baselineSource: "live", enabled: true })).toBe(false);
   });
 
   it("stays silent when alerts are switched off", () => {
     const changes = diffTiers(prev([["A", "Buy"]]), [
       { ticker: "A", tier: "Hold", rsPct: 20, vsMa: -9 },
     ]);
-    expect(shouldSend(changes, { hasBaseline: true, enabled: false })).toBe(false);
+    expect(shouldSend(changes, { hasBaseline: true, baselineSource: "live", enabled: false })).toBe(false);
   });
 
   it("sends when a real change happened against a real baseline", () => {
     const changes = diffTiers(prev([["A", "Buy"]]), [
       { ticker: "A", tier: "Hold", rsPct: 20, vsMa: -9 },
     ]);
-    expect(shouldSend(changes, { hasBaseline: true, enabled: true })).toBe(true);
+    expect(shouldSend(changes, { hasBaseline: true, baselineSource: "live", enabled: true })).toBe(true);
   });
 });
 
@@ -130,5 +130,77 @@ describe("formatAlert", () => {
   it("escapes ticker text rather than interpolating it raw into HTML", () => {
     const evil = diffTiers(prev([["<img src=x>", "Buy"]]), []);
     expect(formatAlert(evil, "2026-08-21").html).not.toContain("<img src=x>");
+  });
+});
+
+describe("shouldSend against a replayed baseline", () => {
+  const changes = () =>
+    diffTiers(prev([["A", "Buy"]]), [{ ticker: "A", tier: "Hold", rsPct: 20, vsMa: -9 }]);
+
+  /**
+   * The bug this exists to stop. A replay reconstructs a session WITHOUT the
+   * fundamental gate, so diffing a live row against a replayed one reports the
+   * difference between two rulesets as though the market had moved. Two alerts
+   * naming ten fictitious changes went out this way on 2026-08-22.
+   */
+  it("refuses to diff against a replayed session", () => {
+    expect(
+      shouldSend(changes(), { hasBaseline: true, baselineSource: "replay", enabled: true }),
+    ).toBe(false);
+  });
+
+  it("sends the identical change set against a live one", () => {
+    expect(
+      shouldSend(changes(), { hasBaseline: true, baselineSource: "live", enabled: true }),
+    ).toBe(true);
+  });
+
+  it("refuses when the provenance is unknown", () => {
+    expect(
+      shouldSend(changes(), { hasBaseline: true, baselineSource: null, enabled: true }),
+    ).toBe(false);
+  });
+});
+
+describe("suppressionReason", () => {
+  const ctx = (over: Partial<Parameters<typeof shouldSend>[1]> = {}) => ({
+    hasBaseline: true,
+    baselineSource: "live" as const,
+    enabled: true,
+    ...over,
+  });
+  const changes = () =>
+    diffTiers(prev([["A", "Buy"]]), [{ ticker: "A", tier: "Hold", rsPct: 20, vsMa: -9 }]);
+
+  /**
+   * The reason and the decision are derived from one context so they cannot
+   * disagree. A response that says "no tier changes" while ten changes were
+   * suppressed for provenance would send the reader hunting the wrong bug.
+   */
+  it("names a reason exactly when the alert is suppressed", () => {
+    const cases: Parameters<typeof shouldSend>[1][] = [
+      ctx({ enabled: false }),
+      ctx({ hasBaseline: false, baselineSource: null }),
+      ctx({ baselineSource: "replay" }),
+      ctx(),
+    ];
+    for (const c of cases) {
+      const sent = shouldSend(changes(), c);
+      expect(suppressionReason(changes(), c) === null).toBe(sent);
+    }
+  });
+
+  it("says nothing changed only when nothing changed", () => {
+    expect(suppressionReason([], ctx())).toMatch(/no tier changes/);
+  });
+
+  it("blames the replay rather than the change count", () => {
+    expect(suppressionReason(changes(), ctx({ baselineSource: "replay" }))).toMatch(/replayed/);
+  });
+
+  it("reports the switch before anything else", () => {
+    expect(
+      suppressionReason(changes(), ctx({ enabled: false, baselineSource: "replay" })),
+    ).toMatch(/ALERTS_ENABLED/);
   });
 });

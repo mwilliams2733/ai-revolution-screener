@@ -81,6 +81,20 @@ export function diffTiers(
 export interface SendContext {
   /** Was there a previous session to compare against? */
   readonly hasBaseline: boolean;
+  /**
+   * How the baseline session was produced, or null when there is none.
+   *
+   * Only a live baseline may be diffed against. A replayed session is
+   * reconstructed under a slightly different ruleset -- the fundamental gate is
+   * not replayed, because applying today's EDGAR filings to a 2025 session is
+   * lookahead -- so a live-versus-replay diff reports differences between two
+   * RULESETS and dresses them up as market moves.
+   *
+   * This is not hypothetical. Two alerts went out on 2026-08-22 naming ten
+   * "changes" that were entirely this artifact, because rerunning the replay
+   * silently overwrote the live baseline it should have been compared to.
+   */
+  readonly baselineSource: "live" | "replay" | null;
   readonly enabled: boolean;
 }
 
@@ -94,7 +108,22 @@ export interface SendContext {
 export function shouldSend(changes: readonly TierChange[], ctx: SendContext): boolean {
   if (!ctx.enabled) return false;
   if (!ctx.hasBaseline) return false;
+  if (ctx.baselineSource !== "live") return false;
   return changes.length > 0;
+}
+
+/** Why nothing was sent, for the refresh response. Null when it was sent. */
+export function suppressionReason(
+  changes: readonly TierChange[],
+  ctx: SendContext,
+): string | null {
+  if (!ctx.enabled) return "ALERTS_ENABLED is not true";
+  if (!ctx.hasBaseline) return "no baseline yet - first run records it silently";
+  if (ctx.baselineSource !== "live") {
+    return "baseline is a replayed session - diffing it would report ruleset differences as market moves";
+  }
+  if (changes.length === 0) return "no tier changes";
+  return null;
 }
 
 const escapeHtml = (s: string): string =>

@@ -119,6 +119,22 @@ CREATE TABLE IF NOT EXISTS tier_history (
   -- a change and defeat the band.
   momentum_tier TEXT,
   weight   DOUBLE PRECISION NOT NULL DEFAULT 0,
+  -- How this row was produced. 'live' means the refresh computed it on the day
+  -- from that day's data and nothing later; 'replay' means it was
+  -- reconstructed afterwards by scripts/replay-tiers.ts.
+  --
+  -- The distinction is load-bearing twice over. Alerts refuse to fire against a
+  -- replayed baseline, because a replay runs a slightly different ruleset (no
+  -- fundamental gate) and diffing across the two reports changes that never
+  -- happened -- which is exactly how two junk alerts went out on 2026-08-22.
+  -- And the live rows are the ONLY genuinely out-of-sample evidence this
+  -- project will ever accumulate, so the replay is forbidden from overwriting
+  -- them; see the guarded ON CONFLICT in scripts/replay-tiers.ts.
+  --
+  -- Defaults to 'replay' on purpose: an unlabelled row must never be mistaken
+  -- for out-of-sample evidence.
+  source   TEXT             NOT NULL DEFAULT 'replay'
+                            CHECK (source IN ('live', 'replay')),
   PRIMARY KEY (session, ticker)
 );
 

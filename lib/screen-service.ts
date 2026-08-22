@@ -432,11 +432,13 @@ async function computeScreen(): Promise<ScreenPayload> {
   const priorFinal = dbConfigured()
     ? await previousTiers(dates.now as string).catch((e: unknown) => {
         loadWarnings.push(`prior final tiers: ${e instanceof Error ? e.message : String(e)}`);
-        return new Map<string, string>();
+        return null;
       })
-    : new Map<string, string>();
+    : null;
   const incumbents = new Set(
-    [...priorFinal].filter(([, t]) => t === "Strong Buy").map(([ticker]) => ticker),
+    [...(priorFinal?.tiers ?? new Map<string, string>())]
+      .filter(([, t]) => t === "Strong Buy")
+      .map(([ticker]) => ticker),
   );
 
   // True moving averages FIRST: they change vsMa, which re-decides the tier,
