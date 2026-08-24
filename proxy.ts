@@ -11,16 +11,23 @@
  *   missing or bad assertion   -> 401
  *   valid assertion, wrong person -> 403
  *
- * The cron route is exempt from Access because Vercel Cron calls the deployment
- * directly and has no browser identity. It authenticates with CRON_SECRET
- * instead, which the route itself checks.
+ * The cron routes are exempt from Access because a scheduler calls the
+ * deployment directly and has no browser identity. They authenticate with
+ * CRON_SECRET instead, which each route checks itself.
+ *
+ * EVERY scheduled route must be listed in CRON_PATHS. Adding /api/digest and
+ * its cron entry without adding it here produced a 401 from this file before
+ * the route ever ran -- every morning, silently, with no email and nothing in
+ * the logs naming the cause. The two 401s are distinguishable only by their
+ * body: "No Cloudflare Access assertion" is this file, "Send Authorization:
+ * Bearer <CRON_SECRET>" is the route.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_COOKIE, readAccessConfig, readToken, verifyAccess } from "@/lib/access";
 
 /** Paths that authenticate by shared secret rather than by Access identity. */
-const CRON_PATHS = ["/api/refresh"];
+const CRON_PATHS = ["/api/refresh", "/api/digest"];
 
 function deny(status: number, reason: string, detail?: string) {
   return NextResponse.json({ error: reason, detail }, { status });

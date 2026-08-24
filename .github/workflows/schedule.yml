@@ -1,0 +1,91 @@
+# Weekday schedule: refresh the screen, then mail the digest an hour later.
+#
+# WHY HERE AND NOT VERCEL CRON
+#
+# vercel.json carries the same two schedules, but Vercel deployments on this
+# account stopped starting builds, so a cron defined there cannot take effect
+# until that is resolved. GitHub Actions runs against whatever is ALREADY
+# deployed, so the schedule works today and keeps working regardless.
+#
+# Both are declared. Whichever fires, the routes are idempotent: the refresh
+# work list is a set difference over sessions, so a second call the same day
+# finds nothing to fetch, and the digest only reads and mails.
+#
+# TIMING IS APPROXIMATE. GitHub schedules queue on shared runners and commonly
+# fire five to twenty minutes late; they are not a guarantee of 06:00 sharp.
+# Vercel Cron is punctual, which is why vercel.json keeps its copy.
+#
+# Phoenix is UTC-7 year-round with no DST, so neither schedule drifts.
+
+name: Screener schedule
+
+on:
+  schedule:
+    - cron: "0 12 * * 1-5"   # 05:00 Phoenix - refresh
+    - cron: "0 13 * * 1-5"   # 06:00 Phoenix - digest email
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Which endpoint to call
+        required: true
+        default: digest
+        type: choice
+        options: [refresh, digest]
+
+# The vercel.app alias, NOT the custom domain: Cloudflare Access fronts
+# screener.williamstradingplatform.com and answers 302 to anything without a
+# browser identity. The routes are exempt from Access in proxy.ts and
+# authenticate with CRON_SECRET instead.
+env:
+  BASE: https://ai-revolution-screener.vercel.app
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Choose endpoint
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "path=/api/${{ inputs.task }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 12 * * 1-5" ]; then
+            echo "path=/api/refresh" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/api/digest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Call it
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not set on this repository."
+            exit 1
+          fi
+          path="${{ steps.pick.outputs.path }}"
+          echo "POST ${BASE}${path}"
+
+          # --max-time generously above the route's own 60s ceiling: a refresh
+          # that fetches several sessions and repairs split-stranded bars is
+          # slow by design, and a client timeout would report failure for work
+          # that actually succeeded.
+          code=$(curl -sS -o response.json -w "%{http_code}" --max-time 300 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${BASE}${path}")
+
+          echo "HTTP $code"
+          # Secrets never appear in the response, so this is safe to print and
+          # it is the only record of what the run actually did.
+          cat response.json; echo
+
+          if [ "$code" != "200" ]; then
+            echo "::error::${path} returned $code"
+            exit 1
+          fi
+
+          # A 200 that did not send is still worth surfacing: "sent: false"
+          # with a reason is the difference between a quiet morning and a
+          # broken pipeline, and it is exactly what a green tick would hide.
+          if grep -q '"sent":false' response.json; then
+            reason=$(grep -o '"reason":"[^"]*"' response.json || echo '"reason":"unstated"')
+            echo "::warning::No email sent - ${reason}"
+          fi
