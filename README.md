@@ -153,9 +153,30 @@ The price feed is delayed end-of-day, so the newest data is the previous
 session's close. The **Session** date says which one. If the app is more than
 one session behind, a banner says so.
 
-**When do alerts arrive?**
-The refresh runs 22:00 UTC on weekdays. If any tier changed, an email goes out
-listing what moved, downgrades first.
+**When do emails arrive?**
+Two different things arrive, and the difference matters.
+
+The **morning digest** lands every weekday at **6:00 AM Phoenix** whether or not
+anything moved: session date and staleness first, then the tier split, what
+changed, what was held down and why, and the ten strongest names. It is
+unconditional on purpose — an alert that goes quiet looks exactly like a
+screener that died three weeks ago, so a digest that always arrives is the only
+thing that can tell you the pipeline is alive.
+
+The **change alert** is exception-driven and fires from the refresh only when a
+tier actually moved, downgrades first.
+
+Schedule, all weekdays (Phoenix is UTC-7 year-round, so none of this drifts):
+
+| Phoenix | UTC | What |
+|---|---|---|
+| 5:00 AM | 12:00 | refresh — picks up the previous session, repairs split-stranded bars |
+| 6:00 AM | 13:00 | digest email |
+| 3:00 PM | 22:00 | refresh — captures the same day's close, two hours after it |
+
+The afternoon refresh is kept because the market closes at 1:00 PM Phoenix:
+without it, Friday's close would not be stored until Monday morning and the
+weekend would show Thursday.
 
 ---
 

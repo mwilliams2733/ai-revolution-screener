@@ -3,6 +3,14 @@
   "crons": [
     {
       "path": "/api/refresh",
+      "schedule": "0 12 * * 1-5"
+    },
+    {
+      "path": "/api/digest",
+      "schedule": "0 13 * * 1-5"
+    },
+    {
+      "path": "/api/refresh",
       "schedule": "0 22 * * 1-5"
     }
   ]
