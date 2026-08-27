@@ -31,9 +31,11 @@ import {
   companyHealth,
   splitHistory,
   medianDollarVolume,
+  lastRefresh,
 } from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
+import type { RefreshRun } from "./refresh-stamp";
 import { periodChanges, type PeriodChanges } from "./period-change";
 import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
@@ -204,6 +206,15 @@ export interface ScreenPayload {
   readonly universeSize: number;
   /** How far behind the latest trading session this data is. */
   readonly staleness: StalenessReport;
+  /**
+   * The last refresh run, or null when the log is empty or unreadable.
+   *
+   * Separate from `staleness`: that measures the DATA, this measures the
+   * PIPELINE. A dead cron leaves staleness looking fine until the calendar
+   * moves past the stored session, which is hours later and never at all over
+   * a weekend.
+   */
+  readonly lastRefresh: RefreshRun | null;
   readonly themed: readonly PricedRow[];
   readonly portfolio: readonly ScreenRow[];
   /** How many momentum Strong Buys the fundamental gate moved down. */
@@ -625,9 +636,18 @@ async function computeScreen(): Promise<ScreenPayload> {
     return { ...r, open, changes: periodChanges(history.get(r.ticker) ?? [], open) };
   });
 
+  // Never fatal. The stamp is an observability nicety; a screen that refuses to
+  // render because its "last updated" line is unavailable would be strictly
+  // worse than one that omits the line.
+  const refreshRun = await lastRefresh().catch((e: unknown) => {
+    loadWarnings.push(`refresh log: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  });
+
   return {
     asOf: dates.now as string,
     staleness: assessStaleness(dates.now as string, calendar),
+    lastRefresh: refreshRun,
     anchors,
     universeSize,
     themed: priced,

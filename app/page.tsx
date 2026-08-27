@@ -3,6 +3,7 @@ import { DEFAULT_PARAMS } from "@/lib/params";
 import ScreenTable from "./screen-table";
 import TickerLookup from "./ticker-lookup";
 import LeadersTable from "./leaders-table";
+import { buildRefreshStamp } from "@/lib/refresh-stamp";
 
 // Delayed end-of-day bars: revalidate hourly rather than on every request.
 export const revalidate = 3600;
@@ -95,6 +96,31 @@ export default async function Page() {
               {data.asOf}
             </span>
           </span>
+          {/* Sits beside Session on purpose: Session says WHICH data, this says
+              whether the pipeline that fetches it is still running. Omitted
+              entirely when the run log is empty -- "never" would be alarming on
+              a fresh database where it is simply not known yet.
+
+              Rendered on the server at DAY granularity so the hourly page cache
+              cannot make it wrong; see lib/refresh-stamp.ts. */}
+          {data.lastRefresh &&
+            (() => {
+              const stamp = buildRefreshStamp(data.lastRefresh, new Date());
+              return (
+                <span>
+                  <span className="stat-k">Last checked</span>
+                  <span
+                    className={`stat-v${stamp.state === "ok" ? "" : ` refresh-${stamp.state}`}`}
+                    title={stamp.detail}
+                  >
+                    {stamp.label}
+                    {stamp.state !== "ok" && (
+                      <span className="refresh-flag"> {stamp.state}</span>
+                    )}
+                  </span>
+                </span>
+              );
+            })()}
           <span>
             <span className="stat-k">Ranked universe</span>
             <span className="stat-v num">{data.universeSize.toLocaleString()}</span>

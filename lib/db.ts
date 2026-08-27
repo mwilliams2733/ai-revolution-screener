@@ -479,6 +479,48 @@ export async function finishRun(
   `;
 }
 
+/**
+ * The most recent run, whatever its outcome.
+ *
+ * Deliberately NOT "the most recent successful run". A failed or half-finished
+ * run is the thing worth surfacing, and filtering to ok = true would quietly
+ * show the last good check while the pipeline had been failing for days --
+ * which is the exact silent failure the stamp exists to expose.
+ */
+export async function lastRefresh(): Promise<{
+  startedAt: string;
+  finishedAt: string | null;
+  ok: boolean | null;
+  kind: string;
+  sessionsAdded: number;
+  barsAdded: number;
+} | null> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT started_at, finished_at, ok, kind, sessions_added, bars_added
+    FROM refresh_runs
+    ORDER BY started_at DESC
+    LIMIT 1
+  `) as {
+    started_at: string;
+    finished_at: string | null;
+    ok: boolean | null;
+    kind: string;
+    sessions_added: number;
+    bars_added: number;
+  }[];
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    startedAt: new Date(r.started_at).toISOString(),
+    finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null,
+    ok: r.ok,
+    kind: r.kind,
+    sessionsAdded: Number(r.sessions_added),
+    barsAdded: Number(r.bars_added),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tier history
 // ---------------------------------------------------------------------------

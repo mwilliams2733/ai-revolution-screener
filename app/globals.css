@@ -113,6 +113,19 @@ body {
 }
 .stat-v { font-size: 1rem; font-weight: 600; }
 
+/* Last-checked stamp. Normal state inherits .stat-v and stays visually silent;
+   only a failed or stalled run earns colour, so the row does not shout on an
+   ordinary morning. --warm matches the very-stale banner, keeping "the
+   pipeline is unwell" one consistent colour across the page. */
+.refresh-failed,
+.refresh-running { color: var(--warm); }
+.refresh-flag {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* ---- distribution strip: the rank rail at universe scale ---- */
 
 .dist {
