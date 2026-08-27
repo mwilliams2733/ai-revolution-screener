@@ -2,18 +2,23 @@
 #
 # WHY HERE AND NOT VERCEL CRON
 #
-# vercel.json carries the same two schedules, but Vercel deployments on this
-# account stopped starting builds, so a cron defined there cannot take effect
-# until that is resolved. GitHub Actions runs against whatever is ALREADY
-# deployed, so the schedule works today and keeps working regardless.
+# vercel.json carries the same two schedules, but a Vercel cron is registered by
+# a DEPLOYMENT, not by the project -- so an undeployed vercel.json declares
+# nothing. On 2026-08-24 a deploy was blocked (Vercel could not match the commit
+# author to a GitHub account) and its cron block never registered; the live set
+# stayed at whatever the previous build declared. GitHub Actions runs against
+# whatever is ALREADY deployed, so the schedule works today and keeps working
+# regardless of what is stuck in Vercel.
 #
 # Both are declared. Whichever fires, the routes are idempotent: the refresh
 # work list is a set difference over sessions, so a second call the same day
 # finds nothing to fetch, and the digest only reads and mails.
 #
-# TIMING IS APPROXIMATE. GitHub schedules queue on shared runners and commonly
-# fire five to twenty minutes late; they are not a guarantee of 06:00 sharp.
-# Vercel Cron is punctual, which is why vercel.json keeps its copy.
+# TIMING IS APPROXIMATE. GitHub schedules queue on shared runners. MEASURED on
+# this repo over four runs (2026-08-25/26): 24 to 40 minutes late, so the "6am"
+# digest actually lands around 06:40 Phoenix. An earlier note here claimed five
+# to twenty; that was an estimate, not a measurement. Vercel Cron is punctual,
+# which is why vercel.json keeps its copy.
 #
 # Phoenix is UTC-7 year-round with no DST, so neither schedule drifts.
 
