@@ -20,7 +20,25 @@ import { buildDigest, tierCounts } from "@/lib/digest";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+
+/**
+ * Five minutes, not the default 60 seconds.
+ *
+ * MEASURED: on 2026-08-27 the scheduled run died at ~61s with
+ * FUNCTION_INVOCATION_TIMEOUT while a warm manual run the same morning
+ * succeeded. The route rebuilds the whole screen before composing the email,
+ * and that work does not reliably fit in a minute from cold -- so the digest
+ * was not broken so much as racing a deadline it sometimes lost, which is the
+ * worst kind of intermittent: green on the days you happen to look.
+ *
+ * Headroom is close to free here. The route only READS and mails, so a long
+ * run costs wall-clock and nothing else, and an email that arrives late is
+ * strictly better than one that never arrives.
+ *
+ * The real fix is not rebuilding the entire screen just to send a summary of
+ * it. This buys room until that is worth doing.
+ */
+export const maxDuration = 300;
 
 /** How many of the strongest names to list. */
 const LEADERS = 10;

@@ -636,13 +636,21 @@ async function computeScreen(): Promise<ScreenPayload> {
     return { ...r, open, changes: periodChanges(history.get(r.ticker) ?? [], open) };
   });
 
-  // Never fatal. The stamp is an observability nicety; a screen that refuses to
-  // render because its "last updated" line is unavailable would be strictly
-  // worse than one that omits the line.
-  const refreshRun = await lastRefresh().catch((e: unknown) => {
-    loadWarnings.push(`refresh log: ${e instanceof Error ? e.message : String(e)}`);
-    return null;
-  });
+  // "No database configured" is a SUPPORTED mode, not a loader failure -- CI
+  // runs the audit without DATABASE_URL and every other loader here returns
+  // empty silently. Reporting it as a warning made the audit's "history loaded
+  // without errors" check fail on a screen that was working exactly as
+  // designed. Guard first; only a real query error is worth a warning.
+  //
+  // And never fatal either way: the stamp is an observability nicety, and a
+  // screen that refuses to render because its "last updated" line is
+  // unavailable would be strictly worse than one that omits the line.
+  const refreshRun = dbConfigured()
+    ? await lastRefresh().catch((e: unknown) => {
+        loadWarnings.push(`refresh log: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      })
+    : null;
 
   return {
     asOf: dates.now as string,

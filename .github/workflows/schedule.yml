@@ -14,11 +14,17 @@
 # work list is a set difference over sessions, so a second call the same day
 # finds nothing to fetch, and the digest only reads and mails.
 #
-# TIMING IS APPROXIMATE. GitHub schedules queue on shared runners. MEASURED on
-# this repo over four runs (2026-08-25/26): 24 to 40 minutes late, so the "6am"
-# digest actually lands around 06:40 Phoenix. An earlier note here claimed five
-# to twenty; that was an estimate, not a measurement. Vercel Cron is punctual,
-# which is why vercel.json keeps its copy.
+# TIMING HERE IS UNRELIABLE, NOT MERELY APPROXIMATE. GitHub schedules queue on
+# shared runners and the lateness is unbounded in practice. Measured on this
+# repo: 24-40 min late on 2026-08-24/25/26, then roughly NINE HOURS late on
+# 2026-08-27 (crons of 0 12 and 0 13 fired at 21:24 and 22:39 UTC). Two earlier
+# notes here claimed "five to twenty minutes" and then "24 to 40"; both were
+# true of the sample in front of them and neither generalised.
+#
+# So treat this workflow as a BACKUP that eventually runs, never as a morning
+# alarm clock. Vercel Cron is the scheduler that matters -- though note the
+# Hobby plan's own precision is per-hour (+/-59 min), so 06:00 means "some time
+# in the 6 o'clock hour", not 06:00 sharp.
 #
 # Phoenix is UTC-7 year-round with no DST, so neither schedule drifts.
 
@@ -70,11 +76,13 @@ jobs:
           path="${{ steps.pick.outputs.path }}"
           echo "POST ${BASE}${path}"
 
-          # --max-time generously above the route's own 60s ceiling: a refresh
-          # that fetches several sessions and repairs split-stranded bars is
-          # slow by design, and a client timeout would report failure for work
-          # that actually succeeded.
-          code=$(curl -sS -o response.json -w "%{http_code}" --max-time 300 \
+          # --max-time generously above the routes' own ceilings, which are now
+          # 300s (raised from 60 after /api/digest died at ~61s with
+          # FUNCTION_INVOCATION_TIMEOUT on 2026-08-27). A refresh that fetches
+          # several sessions and repairs split-stranded bars is slow by design,
+          # and a client timeout would report failure for work that actually
+          # succeeded -- so this must stay ABOVE maxDuration, not equal to it.
+          code=$(curl -sS -o response.json -w "%{http_code}" --max-time 360 \
             -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${BASE}${path}")
 
           echo "HTTP $code"
