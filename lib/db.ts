@@ -522,6 +522,109 @@ export async function lastRefresh(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Cohort history
+// ---------------------------------------------------------------------------
+
+/**
+ * Sessions a cohort can honestly be shown for: LIVE only.
+ *
+ * A replayed session was reconstructed under a different ruleset -- no
+ * fundamental gate, today's theme map, a universe pruned with hindsight -- so
+ * its "top 10" never existed. Offering it in a date picker would present
+ * fiction wearing a date, which is worse than offering nothing, so replayed
+ * sessions are excluded here rather than filtered in the UI.
+ */
+export async function liveSessions(): Promise<string[]> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT session::text AS session
+    FROM tier_history
+    WHERE source = 'live'
+    GROUP BY session
+    ORDER BY session DESC
+  `) as { session: string }[];
+  return rows.map((r) => r.session);
+}
+
+/**
+ * One session's cohort: the Strong Buys, plus every themed name that day.
+ *
+ * Both are needed together. The cohort's absolute return is close to
+ * meaningless on its own -- every live cohort so far is NEGATIVE while the
+ * theme fell further, which is the signal working, not failing -- so the theme
+ * is read from the same snapshot rather than reconstructed later.
+ */
+export async function cohortAt(session: string): Promise<{
+  top: { ticker: string; rsPct: number | null }[];
+  themed: string[];
+}> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, rs_pct, tier
+    FROM tier_history
+    WHERE session = ${session}::date AND source = 'live'
+    ORDER BY rs_pct DESC NULLS LAST, ticker
+  `) as { ticker: string; rs_pct: number | null; tier: string | null }[];
+  return {
+    top: rows
+      .filter((r) => r.tier === "Strong Buy")
+      .map((r) => ({ ticker: r.ticker, rsPct: r.rs_pct == null ? null : Number(r.rs_pct) })),
+    themed: rows.map((r) => r.ticker),
+  };
+}
+
+/** Closes for a set of tickers on one session. */
+export async function closesOn(
+  session: string,
+  tickers: readonly string[],
+): Promise<Map<string, number | null>> {
+  if (tickers.length === 0) return new Map();
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, close
+    FROM daily_bars
+    WHERE session = ${session}::date AND ticker = ANY(${tickers as string[]})
+  `) as { ticker: string; close: number }[];
+  return new Map(rows.map((r) => [r.ticker, Number(r.close)]));
+}
+
+/**
+ * One ticker's full stored price history, plus its LIVE tier changes.
+ *
+ * Prices span everything -- they are real regardless of which ruleset produced
+ * a tier that day. Tier markers do not: a replayed tier badge drawn on a chart
+ * is the same fiction as a replayed cohort, so only live rows are returned.
+ */
+export async function tickerTrend(ticker: string): Promise<{
+  bars: { session: string; close: number }[];
+  tiers: { session: string; tier: string | null; rsPct: number | null }[];
+}> {
+  const sql = client();
+  const [barRows, tierRows] = await Promise.all([
+    sql`
+      SELECT session::text AS session, close
+      FROM daily_bars WHERE ticker = ${ticker}
+      ORDER BY session ASC
+    `,
+    sql`
+      SELECT session::text AS session, tier, rs_pct
+      FROM tier_history WHERE ticker = ${ticker} AND source = 'live'
+      ORDER BY session ASC
+    `,
+  ]);
+  const bars = barRows as { session: string; close: number }[];
+  const tiers = tierRows as { session: string; tier: string | null; rs_pct: number | null }[];
+  return {
+    bars: bars.map((b) => ({ session: b.session, close: Number(b.close) })),
+    tiers: tiers.map((t) => ({
+      session: t.session,
+      tier: t.tier,
+      rsPct: t.rs_pct == null ? null : Number(t.rs_pct),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Tier history
 // ---------------------------------------------------------------------------
 

@@ -1000,3 +1000,69 @@ tr.vetoed .rail-fill { background: var(--veto); }
 /* A turnover figure without its window is two different numbers wearing one
    label. The window travels with the number. */
 .stat-window { text-transform: none; letter-spacing: 0; opacity: 0.75; }
+
+/* ---------------------------------------------------------------------------
+   Top 10 history
+   --------------------------------------------------------------------------- */
+
+/* Session picker. Only live sessions ever reach here, so there is no
+   disabled/replayed state to style -- they are excluded at the query. */
+.sessions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.session-chip {
+  font-size: 0.72rem;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.session-chip:hover { border-color: var(--cool-mid); color: inherit; }
+.session-chip.on {
+  border-color: var(--cool-strong);
+  color: var(--cool-strong);
+  font-weight: 600;
+}
+
+.cohort { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.84rem; }
+.cohort th {
+  text-align: left;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cohort th.num, .cohort td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cohort td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); }
+.cohort tr:last-child td { border-bottom: none; }
+.tick { font-weight: 600; text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); }
+.tick:hover { border-color: var(--cool-strong); color: var(--cool-strong); }
+
+.section { font-size: 0.95rem; margin: 26px 0 0; }
+
+.note {
+  font-size: 0.74rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 12px 0 0;
+  max-width: 74ch;
+}
+
+/* Hand-rolled sparkline: this project has no charting dependency, and the
+   distribution rail on the screen is CSS/SVG too. */
+.spark {
+  width: 100%;
+  height: 160px;
+  margin-top: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.spark-line { fill: none; stroke: var(--cool-mid); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.spark-mark { fill: var(--muted); }
+.spark-mark.tier-strong-buy { fill: var(--cool-strong); }
+.spark-mark.tier-buy { fill: var(--cool-mid); }
+.spark-mark.tier-hold { fill: var(--warm); }

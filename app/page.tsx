@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getScreen } from "@/lib/screen-service";
 import { DEFAULT_PARAMS } from "@/lib/params";
 import ScreenTable from "./screen-table";
@@ -83,6 +84,9 @@ export default async function Page() {
             <strong>{data.staleness.label}.</strong> Showing the close from {data.asOf}.
           </p>
         )}
+        <p className="subtitle">
+          <Link href="/history" className="tick">Top 10 history →</Link>
+        </p>
         <p className="subtitle">
           Relative strength ranked across every liquid US name, then filtered to the AI
           CapEx-taker theme. Ranking happens before the filter, which is what keeps the tier
