@@ -766,3 +766,58 @@ export async function previousMomentumTiers(session: string): Promise<Map<string
   `) as { ticker: string; tier: string | null }[];
   return new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
 }
+
+// ---------------------------------------------------------------------------
+// Mail send ledger
+// ---------------------------------------------------------------------------
+
+/**
+ * Create the ledger if absent. Cheap and idempotent, matching how splits,
+ * split_refetch and company_health are created by their consumers.
+ */
+async function ensureMailLedger(): Promise<void> {
+  const sql = client();
+  await sql`
+    CREATE TABLE IF NOT EXISTS mail_sends (
+      kind       TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL,
+      sent_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (kind, dedupe_key)
+    )
+  `;
+}
+
+/**
+ * Has this exact message already gone out?
+ *
+ * Returns false when there is no database: without one we cannot know, and a
+ * possible duplicate is a far smaller harm than suppressing the only email
+ * that would have told you the pipeline is alive.
+ */
+export async function alreadySent(kind: string, dedupeKey: string): Promise<boolean> {
+  if (!process.env.DATABASE_URL) return false;
+  await ensureMailLedger();
+  const sql = client();
+  const rows = (await sql`
+    SELECT 1 FROM mail_sends WHERE kind = ${kind} AND dedupe_key = ${dedupeKey} LIMIT 1
+  `) as unknown[];
+  return rows.length > 0;
+}
+
+/**
+ * Record a message that was actually delivered.
+ *
+ * Called only AFTER a successful send, never before. Recording first would be
+ * at-most-once delivery: a send that then failed would be permanently marked
+ * done and the email would never arrive. A duplicate is recoverable; a
+ * silently missing digest is not.
+ */
+export async function recordMailSend(kind: string, dedupeKey: string): Promise<void> {
+  if (!process.env.DATABASE_URL) return;
+  await ensureMailLedger();
+  const sql = client();
+  await sql`
+    INSERT INTO mail_sends (kind, dedupe_key) VALUES (${kind}, ${dedupeKey})
+    ON CONFLICT (kind, dedupe_key) DO NOTHING
+  `;
+}

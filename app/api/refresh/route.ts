@@ -27,6 +27,8 @@ import {
   splitHistory,
   storedCalendarBounds,
   tickersWithBars,
+  alreadySent,
+  recordMailSend,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
 import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
@@ -34,6 +36,7 @@ import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { isoDaysAgo } from "@/lib/dates";
 import { pendingRefetches, refetchTargets } from "@/lib/splits";
+import { alertKey } from "@/lib/mail-ledger";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -227,13 +230,23 @@ async function handle(req: Request) {
           baseline: previous ? `${previous.session} (${previous.source})` : null,
         };
       } else {
-        const { subject, text, html } = formatAlert(changes, screen.asOf);
-        // Deliberately still a 200 on failure, unlike /api/digest: this route
-        // has already stored bars and snapshotted tiers. A failed email must
-        // not mark that work as failed. The reason field now says what went
-        // wrong without changing the status.
-        const result = await sendMail(mail, subject, text, html);
-        alert = { ...result, changes: changes.length, subject };
+        const key = alertKey(screen.asOf);
+        if (await alreadySent("alert", key)) {
+          alert = {
+            sent: false,
+            reason: "alert already sent for this session",
+            changes: changes.length,
+          };
+        } else {
+          const { subject, text, html } = formatAlert(changes, screen.asOf);
+          // Deliberately still a 200 on failure, unlike /api/digest: this route
+          // has already stored bars and snapshotted tiers. A failed email must
+          // not mark that work as failed. The reason field now says what went
+          // wrong without changing the status.
+          const result = await sendMail(mail, subject, text, html);
+          if (result.sent) await recordMailSend("alert", key);
+          alert = { ...result, changes: changes.length, subject };
+        }
       }
     }
 

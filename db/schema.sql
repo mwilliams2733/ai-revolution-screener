@@ -181,3 +181,34 @@ CREATE TABLE IF NOT EXISTS split_refetch (
   done_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (ticker, execution_date)
 );
+
+-- ---------------------------------------------------------------------------
+
+-- Emails actually delivered, so a second caller skips instead of re-sending.
+--
+-- vercel.json and .github/workflows/schedule.yml declare the SAME two
+-- schedules on purpose: a Vercel cron is registered by a deployment, so a
+-- blocked deploy silently leaves the old schedule live, and GitHub Actions runs
+-- against whatever is already deployed. That redundancy is wanted. What it
+-- costs, without this table, is duplicate delivery -- the routes are idempotent
+-- in what they WRITE, but sending an email twice is not a write.
+--
+-- The two kinds key differently, and the asymmetry is the point:
+--   digest:<utc-date>  -- one per DAY. The digest is a heartbeat and must
+--                         arrive even when the data has not moved; keying it
+--                         on the session would make a stalled pipeline send
+--                         once and then go quiet, which is the exact failure
+--                         the digest exists to reveal.
+--   alert:<asOf>       -- one per SESSION. The alert diffs against the previous
+--                         session, so re-running the refresh on the same asOf
+--                         recomputes an identical change set and would report
+--                         the morning's moves again in the afternoon.
+--
+-- Rows are written only AFTER a successful send: recording first would be
+-- at-most-once delivery, permanently marking a failed send as done.
+CREATE TABLE IF NOT EXISTS mail_sends (
+  kind       TEXT NOT NULL,              -- 'digest' | 'alert'
+  dedupe_key TEXT NOT NULL,
+  sent_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (kind, dedupe_key)
+);
