@@ -87,6 +87,30 @@ export function sendFailure(e: unknown, recipients: number): SendResult {
   };
 }
 
+/**
+ * Address the envelope so recipients cannot see each other.
+ *
+ * Everyone except the sender goes in Bcc and the To line carries only the
+ * sender's own address. These emails name positions and tier moves; who else
+ * reads them is nobody's business but the sender's, and a plain To line leaks
+ * the whole distribution list to every reader forever.
+ *
+ * The sender is filtered out of Bcc rather than trusted to be absent, so an
+ * ALERT_TO that lists the sender does not deliver twice.
+ *
+ * Pure, so the addressing can be tested without a mail server.
+ */
+export function envelope(cfg: MailConfig): {
+  to: string;
+  bcc: readonly string[];
+  recipients: number;
+} {
+  const self = cfg.user.trim().toLowerCase();
+  const bcc = cfg.to.filter((a) => a.trim().toLowerCase() !== self);
+  // The To line is always exactly one address, so deliveries are bcc + 1.
+  return { to: cfg.user, bcc, recipients: bcc.length + 1 };
+}
+
 /** Send one message. Never throws: a failed alert must not fail the refresh. */
 export async function sendMail(
   cfg: MailConfig,
@@ -110,18 +134,21 @@ export async function sendMail(
       socketTimeout: 30_000,
     });
 
+    const { to, bcc, recipients } = envelope(cfg);
+
     await transport.sendMail({
       from: `AI Revolution Screener <${cfg.user}>`,
-      to: cfg.to.join(", "),
+      to,
+      bcc: bcc.join(", "),
       subject,
       text,
       html,
     });
 
-    return { sent: true, recipients: cfg.to.length };
+    return { sent: true, recipients };
   } catch (e) {
     // The nightly job's real work is storing bars. Losing an email is an
     // annoyance; losing the refresh because an email failed is a data gap.
-    return sendFailure(e, cfg.to.length);
+    return sendFailure(e, envelope(cfg).recipients);
   }
 }

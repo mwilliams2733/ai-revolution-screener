@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readMailConfig, SEND_FAILED, sendFailure } from "./mailer";
+import { envelope, readMailConfig, SEND_FAILED, sendFailure } from "./mailer";
 
 /**
  * Credentials here are obvious fakes and exist only to get past the
@@ -92,5 +92,51 @@ describe("sendFailure", () => {
     const r = sendFailure("socket hang up", 1);
     expect(r.reason).toBe(SEND_FAILED);
     expect(r.error).toBe("socket hang up");
+  });
+});
+
+describe("envelope keeps the recipient list private", () => {
+  /**
+   * The bug this guards: every recipient used to go in the To line, so each
+   * reader could see the whole distribution list. These emails name positions;
+   * who else reads them is the sender's business alone.
+   */
+  const cfg = {
+    user: "sender@example.com",
+    pass: "not-a-real-password",
+    to: ["sender@example.com", "a@example.com", "b@example.com"],
+    enabled: true,
+    digestEnabled: true,
+  };
+
+  it("puts only the sender in the To line", () => {
+    expect(envelope(cfg).to).toBe("sender@example.com");
+  });
+
+  it("puts every other recipient in Bcc, so they cannot see each other", () => {
+    expect(envelope(cfg).bcc).toEqual(["a@example.com", "b@example.com"]);
+  });
+
+  it("never leaks another recipient into the To line", () => {
+    const { to } = envelope(cfg);
+    expect(to).not.toContain("a@example.com");
+    expect(to).not.toContain("b@example.com");
+  });
+
+  it("does not deliver twice when ALERT_TO also lists the sender", () => {
+    expect(envelope(cfg).bcc).not.toContain("sender@example.com");
+    expect(envelope(cfg).recipients).toBe(3);
+  });
+
+  it("matches the sender case-insensitively", () => {
+    const mixed = { ...cfg, to: ["Sender@Example.COM", "a@example.com"] };
+    expect(envelope(mixed).bcc).toEqual(["a@example.com"]);
+    expect(envelope(mixed).recipients).toBe(2);
+  });
+
+  it("still sends to the sender alone when there are no other recipients", () => {
+    const solo = { ...cfg, to: ["sender@example.com"] };
+    expect(envelope(solo).bcc).toEqual([]);
+    expect(envelope(solo).recipients).toBe(1);
   });
 });
