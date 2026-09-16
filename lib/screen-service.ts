@@ -297,6 +297,33 @@ async function resolveCalendar(): Promise<{ calendar: string[]; source: Source }
 }
 
 /**
+ * A trading calendar that does NOT come from what we have stored.
+ *
+ * Staleness asks "is our newest stored session the newest session that exists".
+ * Answering it with the stored ledger is circular -- the ledger's head IS our
+ * as-of date, so indexOf is always 0 and the check can never fail. The proxy
+ * aggregates know about sessions this app has never fetched, which is exactly
+ * the gap a stalled refresh opens.
+ *
+ * Today is excluded: this plan serves delayed end-of-day bars, so the current
+ * session is never the expected as-of date, and counting it would report every
+ * afternoon as one session behind.
+ *
+ * Returns null when the reference cannot be fetched. Callers must treat that as
+ * "unknown", never as "fresh".
+ */
+async function referenceCalendar(warnings: string[]): Promise<string[] | null> {
+  try {
+    const today = isoDaysAgo(0);
+    const cal = await tradingCalendar(isoDaysAgo(30), today);
+    return cal.filter((d) => d < today);
+  } catch (e) {
+    warnings.push(`reference calendar: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+/**
  * One snapshot, from Postgres when stored and from the API otherwise.
  *
  * `opens` is only populated for the current session, which is the only one the
@@ -545,6 +572,8 @@ async function computeScreen(): Promise<ScreenPayload> {
     await resolveReference();
   warnings.push(...refWarnings);
 
+  const reference = await referenceCalendar(warnings);
+
   // Persistent liquidity, applied by narrowing the universe BEFORE ranking.
   // Filtering afterwards would leave the percentiles computed over a different
   // set than the one on screen, and an RS of 90 would stop meaning the same
@@ -675,7 +704,13 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   return {
     asOf: dates.now as string,
-    staleness: assessStaleness(dates.now as string, calendar),
+    staleness: reference
+      ? assessStaleness(dates.now as string, reference)
+      : {
+          freshness: "very-stale" as const,
+          sessionsBehind: Number.POSITIVE_INFINITY,
+          label: "Freshness could not be checked",
+        },
     lastRefresh: refreshRun,
     anchors,
     universeSize,
@@ -812,6 +847,11 @@ async function getScreenRanked(): Promise<{
 }> {
   const { calendar } = await resolveCalendar();
   const dates = anchorDates(calendar, DEFAULT_PARAMS.lookbacks);
+  // Throwaway: this path returns no meta.warnings, so a failed reference fetch
+  // has nowhere to be reported. The staleness fallback below still refuses to
+  // claim freshness, which is the part that matters.
+  const refWarnings: string[] = [];
+  const reference = await referenceCalendar(refWarnings);
   const snapshots: Record<string, BarsByTicker> = {};
 
   for (const label of ["now", ...ANCHOR_LABELS] as const) {
@@ -828,6 +868,12 @@ async function getScreenRanked(): Promise<{
     nowBars: snapshots.now,
     universeSize,
     asOf: dates.now as string,
-    staleness: assessStaleness(dates.now as string, calendar),
+    staleness: reference
+      ? assessStaleness(dates.now as string, reference)
+      : {
+          freshness: "very-stale" as const,
+          sessionsBehind: Number.POSITIVE_INFINITY,
+          label: "Freshness could not be checked",
+        },
   };
 }

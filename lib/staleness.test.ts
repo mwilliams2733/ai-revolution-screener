@@ -38,3 +38,32 @@ describe("assessStaleness", () => {
     expect(r.sessionsBehind).toBe(Number.POSITIVE_INFINITY);
   });
 });
+
+describe("assessStaleness wiring contract", () => {
+  /**
+   * The bug this guards: production passed the STORED calendar, whose head is
+   * the as-of date itself, so indexOf was always 0. Any calendar that starts
+   * with asOf reports current by construction -- which is why the reference
+   * calendar must come from a source independent of what we stored.
+   */
+  it("is vacuously current whenever asOf heads the calendar", () => {
+    const anyCal = ["2026-08-20", "2026-08-19", "2026-08-18"];
+    expect(assessStaleness(anyCal[0], anyCal).freshness).toBe("current");
+  });
+
+  it("reports the gap when the stored head trails the real calendar", () => {
+    // Refresh stalled after 2026-08-17; the market kept trading.
+    const reference = ["2026-08-20", "2026-08-19", "2026-08-18", "2026-08-17"];
+    const r = assessStaleness("2026-08-17", reference);
+    expect(r.freshness).toBe("very-stale");
+    expect(r.sessionsBehind).toBe(3);
+  });
+
+  it("calls a weekend one session behind, not stale-alarming", () => {
+    // Saturday: newest completed session is Friday, we hold Thursday's close.
+    const reference = ["2026-08-21", "2026-08-20", "2026-08-19"];
+    const r = assessStaleness("2026-08-20", reference);
+    expect(r.sessionsBehind).toBe(1);
+    expect(r.freshness).toBe("stale");
+  });
+});
