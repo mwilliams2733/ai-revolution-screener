@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readMailConfig } from "./mailer";
+import { readMailConfig, SEND_FAILED, sendFailure } from "./mailer";
 
 /**
  * Credentials here are obvious fakes and exist only to get past the
@@ -65,5 +65,32 @@ describe("the two send flags default in opposite directions", () => {
     const cfg = readMailConfig();
     expect(cfg?.enabled).toBe(false);
     expect(cfg?.digestEnabled).toBe(true);
+  });
+});
+
+describe("sendFailure", () => {
+  /**
+   * The bug this guards: a genuine SMTP rejection returned {sent,recipients,
+   * error} with NO reason, while every deliberate suppression reported one. The
+   * workflow greps for "reason", so the real failure was the only one that
+   * degraded to "unstated".
+   */
+  it("always carries a machine-readable reason", () => {
+    const r = sendFailure(new Error("535 auth failed"), 3);
+    expect(r.sent).toBe(false);
+    expect(r.reason).toBe(SEND_FAILED);
+    expect(typeof r.reason).toBe("string");
+  });
+
+  it("preserves the underlying error text alongside the reason", () => {
+    const r = sendFailure(new Error("535 auth failed"), 3);
+    expect(r.error).toContain("535");
+    expect(r.recipients).toBe(3);
+  });
+
+  it("handles a non-Error throw without losing the reason", () => {
+    const r = sendFailure("socket hang up", 1);
+    expect(r.reason).toBe(SEND_FAILED);
+    expect(r.error).toBe("socket hang up");
   });
 });

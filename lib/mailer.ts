@@ -59,10 +59,32 @@ export function readMailConfig(): MailConfig | null {
   };
 }
 
+/** The reason string a genuine delivery failure reports. */
+export const SEND_FAILED = "smtp send failed";
+
 export interface SendResult {
   readonly sent: boolean;
   readonly recipients: number;
+  /**
+   * Machine-readable cause, present on every non-send.
+   *
+   * The GitHub workflow greps for this field; without it a real SMTP rejection
+   * degraded to `"reason":"unstated"` while every DELIBERATE suppression
+   * reported itself properly. The failure path must be at least as informative
+   * as the success-but-skipped path.
+   */
+  readonly reason?: string;
   readonly error?: string;
+}
+
+/** Shape a thrown send into a reportable result. Pure, so it can be tested. */
+export function sendFailure(e: unknown, recipients: number): SendResult {
+  return {
+    sent: false,
+    recipients,
+    reason: SEND_FAILED,
+    error: e instanceof Error ? e.message : String(e),
+  };
 }
 
 /** Send one message. Never throws: a failed alert must not fail the refresh. */
@@ -78,6 +100,14 @@ export async function sendMail(
       port: 465,
       secure: true,
       auth: { user: cfg.user, pass: cfg.pass },
+      // Nodemailer defaults to a 10-minute socket timeout, which outlives this
+      // route's maxDuration of 300s. A hung socket would therefore kill the
+      // function before the catch above could return anything at all -- no
+      // JSON, no reason, nothing for the workflow to read. Fail in seconds so
+      // the failure is reportable.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
     });
 
     await transport.sendMail({
@@ -92,10 +122,6 @@ export async function sendMail(
   } catch (e) {
     // The nightly job's real work is storing bars. Losing an email is an
     // annoyance; losing the refresh because an email failed is a data gap.
-    return {
-      sent: false,
-      recipients: cfg.to.length,
-      error: e instanceof Error ? e.message : String(e),
-    };
+    return sendFailure(e, cfg.to.length);
   }
 }

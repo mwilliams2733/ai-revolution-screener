@@ -124,7 +124,16 @@ async function handle(req: Request) {
   }
 
   const result = await sendMail(mail, digest.subject, digest.text, digest.html);
-  return NextResponse.json({ ok: true, ...result, subject: digest.subject, asOf: screen.asOf });
+
+  // A failed send is a failed job, not a 200 with a sad field. This route
+  // writes nothing, so answering non-2xx costs no data and is the only way the
+  // failure reaches Vercel's own cron log -- the GitHub workflow's grep is not
+  // running on that path. The workflow fails on a non-200 before it greps, so
+  // this upgrades a silent warning into a red run in both schedulers.
+  return NextResponse.json(
+    { ok: result.sent, ...result, subject: digest.subject, asOf: screen.asOf },
+    { status: result.sent ? 200 : 500 },
+  );
 }
 
 export const GET = handle;

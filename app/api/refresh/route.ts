@@ -228,6 +228,10 @@ async function handle(req: Request) {
         };
       } else {
         const { subject, text, html } = formatAlert(changes, screen.asOf);
+        // Deliberately still a 200 on failure, unlike /api/digest: this route
+        // has already stored bars and snapshotted tiers. A failed email must
+        // not mark that work as failed. The reason field now says what went
+        // wrong without changing the status.
         const result = await sendMail(mail, subject, text, html);
         alert = { ...result, changes: changes.length, subject };
       }
