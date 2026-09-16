@@ -82,54 +82,51 @@ export interface VetoedRow extends ScreenRow {
  * the current state of this deployment. The fallback is explicit and reported
  * rather than silent, so the UI can say which average it used.
  */
-/**
- * Loader failures must not look like "no database".
- *
- * A swallowed error here previously made every row fall back to the proxy while
- * the audit reported "needs the backfill" -- which was false, the backfill had
- * run. Failures are recorded and surfaced in meta.warnings instead.
- */
-const loadWarnings: string[] = [];
-
-async function loadHistory(tickers: readonly string[]): Promise<Map<string, number[]>> {
+async function loadHistory(
+  tickers: readonly string[],
+  warnings: string[],
+): Promise<Map<string, number[]>> {
   if (!dbConfigured()) return new Map();
   try {
     return await loadCloseHistory(MA_WINDOW, tickers);
   } catch (e) {
-    loadWarnings.push(`close history: ${e instanceof Error ? e.message : String(e)}`);
+    warnings.push(`close history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
 }
 
 /** Recorded tier history. Empty without a database. */
-async function loadHistorySummary(): Promise<TierHistorySummary> {
+async function loadHistorySummary(warnings: string[]): Promise<TierHistorySummary> {
   if (!dbConfigured()) return summariseTierHistory([]);
   try {
     return summariseTierHistory(await loadTierHistory(HISTORY_WINDOW));
   } catch (e) {
-    loadWarnings.push(`tier history: ${e instanceof Error ? e.message : String(e)}`);
+    warnings.push(`tier history: ${e instanceof Error ? e.message : String(e)}`);
     return summariseTierHistory([]);
   }
 }
 
 /** Close, high and low for the trend family. Empty without a database. */
-async function loadTrendBars(tickers: readonly string[]): Promise<Map<string, TrendBar[]>> {
+async function loadTrendBars(
+  tickers: readonly string[],
+  warnings: string[],
+): Promise<Map<string, TrendBar[]>> {
   if (!dbConfigured()) return new Map();
   try {
     return await loadTrendHistory(Math.max(TREND_MIN_HISTORY, 252), tickers);
   } catch (e) {
-    loadWarnings.push(`trend history: ${e instanceof Error ? e.message : String(e)}`);
+    warnings.push(`trend history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
 }
 
 /** Close and volume for the volume family. Empty without a database. */
-async function loadVolumeBars(): Promise<Map<string, VolumeBar[]>> {
+async function loadVolumeBars(warnings: string[]): Promise<Map<string, VolumeBar[]>> {
   if (!dbConfigured()) return new Map();
   try {
     return await loadVolumeHistory(VOLUME_WINDOW + 1);
   } catch (e) {
-    loadWarnings.push(`volume history: ${e instanceof Error ? e.message : String(e)}`);
+    warnings.push(`volume history: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
 }
@@ -394,6 +391,15 @@ interface Reference {
   /** SIC labels for the full universe. Empty until scripts/sectors.ts runs. */
   readonly sectors: Map<string, SectorLabels>;
   readonly source: Source;
+  /**
+   * Failures from building THIS reference snapshot.
+   *
+   * Stored with the value rather than pushed to the caller, because the value
+   * is cached for six hours: a caller that hits the cache must still learn
+   * that its sectors are missing. Replaying from the cache entry keeps the one
+   * fact in one place instead of two that must agree.
+   */
+  readonly warnings: readonly string[];
 }
 
 let referenceCache: { at: number; value: Reference } | null = null;
@@ -403,6 +409,8 @@ async function resolveReference(): Promise<Reference> {
   if (referenceCache && Date.now() - referenceCache.at < REFERENCE_TTL_MS) {
     return referenceCache.value;
   }
+
+  const warnings: string[] = [];
 
   // Every security type the screen considers, not just common stock. Fetching
   // CS alone excluded every ADR -- TSM, ASML and ARM among them -- from a
@@ -439,11 +447,11 @@ async function resolveReference(): Promise<Reference> {
     try {
       sectors = await tickerSectors();
     } catch (e) {
-      loadWarnings.push(`sectors: ${e instanceof Error ? e.message : String(e)}`);
+      warnings.push(`sectors: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  const value: Reference = { names, ciks, sectors, source };
+  const value: Reference = { names, ciks, sectors, source, warnings };
   referenceCache = { at: Date.now(), value };
   return value;
 }
@@ -499,6 +507,18 @@ export async function getScreen(force = false): Promise<ScreenPayload> {
 
 async function computeScreen(): Promise<ScreenPayload> {
   const started = Date.now();
+  /**
+   * Loader failures must not look like "no database".
+   *
+   * A swallowed error here previously made every row fall back to the proxy while
+   * the audit reported "needs the backfill" -- which was false, the backfill had
+   * run. Failures are recorded and surfaced in meta.warnings instead.
+   *
+   * Request-scoped: a module-level array was being cleared mid-pipeline, which
+   * erased every warning raised before the reset, and leaked the ones raised
+   * after it into the next request served by the same warm instance.
+   */
+  const warnings: string[] = [];
 
   const { calendar, source: calendarSource } = await resolveCalendar();
   // Keep the calendar so staleness is measured in sessions, not calendar days.
@@ -521,7 +541,9 @@ async function computeScreen(): Promise<ScreenPayload> {
     anchors[label] = { date, bars: bars.size, source };
   }
 
-  const { names, ciks, sectors, source: namesSource } = await resolveReference();
+  const { names, ciks, sectors, source: namesSource, warnings: refWarnings } =
+    await resolveReference();
+  warnings.push(...refWarnings);
 
   // Persistent liquidity, applied by narrowing the universe BEFORE ranking.
   // Filtering afterwards would leave the percentiles computed over a different
@@ -533,7 +555,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   // is unmeasured, and the two must not be confused.
   const medians = dbConfigured()
     ? await medianDollarVolume(LIQUIDITY_WINDOW).catch((e: unknown) => {
-        loadWarnings.push(`median volume: ${e instanceof Error ? e.message : String(e)}`);
+        warnings.push(`median volume: ${e instanceof Error ? e.message : String(e)}`);
         return new Map<string, number>();
       })
     : new Map<string, number>();
@@ -558,7 +580,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   // adjusts the tier a name is entitled to, and the overlays then cap it.
   const priorTiers = dbConfigured()
     ? await previousMomentumTiers(dates.now as string).catch((e: unknown) => {
-        loadWarnings.push(`prior tiers: ${e instanceof Error ? e.message : String(e)}`);
+        warnings.push(`prior tiers: ${e instanceof Error ? e.message : String(e)}`);
         return new Map<string, string>();
       })
     : new Map<string, string>();
@@ -568,7 +590,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   // band above works on.
   const priorFinal = dbConfigured()
     ? await previousTiers(dates.now as string).catch((e: unknown) => {
-        loadWarnings.push(`prior final tiers: ${e instanceof Error ? e.message : String(e)}`);
+        warnings.push(`prior final tiers: ${e instanceof Error ? e.message : String(e)}`);
         return null;
       })
     : null;
@@ -580,16 +602,15 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   // True moving averages FIRST: they change vsMa, which re-decides the tier,
   // which decides who the fundamental gate and the cap even consider.
-  loadWarnings.length = 0;
   const themedTickers = themed.map((r) => r.ticker);
-  const history = await loadHistory(themedTickers);
+  const history = await loadHistory(themedTickers, warnings);
   const withMa = applyTrueMa(themed, history);
   const trended = applyHysteresis(withMa, priorTiers as ReadonlyMap<string, Tier>);
 
   // Stage needs the trend history, and the stage rule must run before the
   // fundamental gate and the cap: a topping name should not consume one of the
   // ten Strong Buy slots on its way down.
-  const trendBars = await loadTrendBars(themedTickers);
+  const trendBars = await loadTrendBars(themedTickers, warnings);
   const staged = applyTrend(trended, trendBars);
   const stageRuled = applyStageRule(staged);
 
@@ -609,11 +630,11 @@ async function computeScreen(): Promise<ScreenPayload> {
   const [healthFacts, splits] = dbConfigured()
     ? await Promise.all([
         companyHealth().catch((e: unknown) => {
-          loadWarnings.push(`company health: ${e instanceof Error ? e.message : String(e)}`);
+          warnings.push(`company health: ${e instanceof Error ? e.message : String(e)}`);
           return new Map<string, HealthFacts>();
         }),
         splitHistory().catch((e: unknown) => {
-          loadWarnings.push(`splits: ${e instanceof Error ? e.message : String(e)}`);
+          warnings.push(`splits: ${e instanceof Error ? e.message : String(e)}`);
           return new Map<string, Split[]>();
         }),
       ])
@@ -624,7 +645,7 @@ async function computeScreen(): Promise<ScreenPayload> {
 
 
   // Volume metrics grade against the FULL ranked universe, never the theme.
-  const volumeBars = await loadVolumeBars();
+  const volumeBars = await loadVolumeBars(warnings);
   const withVolume = applyVolume(ranked, limited, volumeBars);
 
   const themeTickers = new Set(themed.map((r) => r.ticker));
@@ -647,7 +668,7 @@ async function computeScreen(): Promise<ScreenPayload> {
   // unavailable would be strictly worse than one that omits the line.
   const refreshRun = dbConfigured()
     ? await lastRefresh().catch((e: unknown) => {
-        loadWarnings.push(`refresh log: ${e instanceof Error ? e.message : String(e)}`);
+        warnings.push(`refresh log: ${e instanceof Error ? e.message : String(e)}`);
         return null;
       })
     : null;
@@ -666,7 +687,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     // is a different question from "how correlated are the names I could own",
     // and measuring 66 candidates would understate concentration badly.
     risk: portfolioRisk(portfolio, history),
-    history: await loadHistorySummary(),
+    history: await loadHistorySummary(warnings),
     leaders: ranked.map((r): LeaderRow => {
       const labels = sectors.get(r.ticker) ?? classify(null);
       return {
@@ -705,7 +726,7 @@ async function computeScreen(): Promise<ScreenPayload> {
       volumeWindow: VOLUME_WINDOW,
       trendScored: trendScoredCount(staged),
       trendMinHistory: TREND_MIN_HISTORY,
-      warnings: [...loadWarnings],
+      warnings: [...warnings],
     },
   };
 }
