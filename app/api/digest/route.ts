@@ -110,13 +110,15 @@ async function handle(req: Request) {
   if (!mail) {
     return NextResponse.json({ ok: true, sent: false, reason: "no mail config", subject: digest.subject });
   }
-  if (!mail.enabled) {
+  if (!mail.digestEnabled) {
     // Reported, not silent: a digest that stops arriving because a flag is off
-    // is indistinguishable from one that stops because the cron broke.
+    // is indistinguishable from one that stops because the cron broke. Note
+    // this is DIGEST_ENABLED, not ALERTS_ENABLED -- muting the alerts must not
+    // mute the heartbeat.
     return NextResponse.json({
       ok: true,
       sent: false,
-      reason: "ALERTS_ENABLED is not true",
+      reason: "DIGEST_ENABLED is false",
       subject: digest.subject,
     });
   }

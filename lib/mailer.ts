@@ -15,7 +15,17 @@ export interface MailConfig {
   readonly user: string;
   readonly pass: string;
   readonly to: readonly string[];
+  /** Exception-driven tier-change alerts. Opt-IN: off unless explicitly "true". */
   readonly enabled: boolean;
+  /**
+   * The unconditional morning digest. Opt-OUT: on unless explicitly "false".
+   *
+   * The two flags default in opposite directions on purpose. An alert that is
+   * off is quiet; a digest that is off is indistinguishable from a pipeline
+   * that died, which is the one failure this email exists to make visible. So
+   * silencing it has to be a deliberate act, not a side effect of muting alerts.
+   */
+  readonly digestEnabled: boolean;
 }
 
 /**
@@ -40,7 +50,13 @@ export function readMailConfig(): MailConfig | null {
     .filter(Boolean);
   if (to.length === 0) return null;
 
-  return { user, pass, to, enabled: process.env.ALERTS_ENABLED === "true" };
+  return {
+    user,
+    pass,
+    to,
+    enabled: process.env.ALERTS_ENABLED === "true",
+    digestEnabled: process.env.DIGEST_ENABLED !== "false",
+  };
 }
 
 export interface SendResult {
