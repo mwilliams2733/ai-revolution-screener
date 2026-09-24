@@ -23,6 +23,8 @@
 
 import { escapeHtml, type TierChange } from "./alerts";
 
+export type BaselineState = "live" | "replay" | "none" | "unavailable";
+
 export interface DigestInput {
   /** Session the screen is showing. */
   readonly asOf: string;
@@ -36,8 +38,17 @@ export interface DigestInput {
   readonly hold: number;
   /** Tier moves since the previous recorded session. */
   readonly changes: readonly TierChange[];
-  /** Whether the baseline was a live session; a replayed one is not comparable. */
-  readonly changesComparable: boolean;
+  /**
+   * What the tier changes were measured against.
+   *
+   *   live        -- a real previous session; `changes` is meaningful
+   *   replay      -- a reconstructed session; diffing it reports ruleset
+   *                  differences as market moves, so `changes` is withheld
+   *   none        -- no earlier session exists (first run)
+   *   unavailable -- the lookup itself failed; this is an infrastructure
+   *                  fault and the email must say so, not dress it as a replay
+   */
+  readonly baseline: BaselineState;
   readonly stageCapped: number;
   readonly gateDemoted: number;
   readonly cappedOut: number;
@@ -81,17 +92,28 @@ export function digestSubject(d: DigestInput): string {
   // "no tier changes" and "we could not compare" are different statements and
   // the subject must not collapse them: the first says the market was quiet,
   // the second says we do not know.
-  const moved = !d.changesComparable
-    ? "baseline not comparable"
-    : d.changes.length > 0
-      ? `${d.changes.length} moved`
-      : "no tier changes";
+  const moved =
+    d.baseline === "live"
+      ? d.changes.length > 0
+        ? `${d.changes.length} moved`
+        : "no tier changes"
+      : d.baseline === "replay"
+        ? "baseline not comparable"
+        : d.baseline === "none"
+          ? "no baseline yet"
+          : "BASELINE UNAVAILABLE";
   return `Screener ${d.asOf}: ${d.strongBuy} strong buy, ${moved}`;
 }
 
 function changeLines(d: DigestInput): string[] {
-  if (!d.changesComparable) {
+  if (d.baseline === "replay") {
     return ["Tier changes not comparable: the previous session was reconstructed, not live."];
+  }
+  if (d.baseline === "none") {
+    return ["No previous session to compare against yet."];
+  }
+  if (d.baseline === "unavailable") {
+    return ["Tier changes unavailable: the previous session could not be read from the database."];
   }
   if (d.changes.length === 0) return ["No tier changes."];
   // Downgrades first: the thing you might have to act on before the open.
