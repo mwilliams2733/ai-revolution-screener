@@ -17,10 +17,11 @@ const base: DigestInput = {
   cappedOut: 25,
   healthCapped: 3,
   warnings: [],
-  leaders: [
-    { ticker: "LITE", rsPct: 99, tier: "Strong Buy" },
-    { ticker: "DELL", rsPct: 99, tier: "Strong Buy" },
+  book: [
+    { ticker: "LITE", rsPct: 99, vsMa: 12.3 },
+    { ticker: "DELL", rsPct: 99, vsMa: 4 },
   ],
+  refreshLine: "Ran Aug 21, 5:12 AM MST, added 1 session and 4,102 bars.",
 };
 
 const change = (ticker: string, from: string | null, to: string | null, kind: string) =>
@@ -146,13 +147,30 @@ describe("buildDigest", () => {
     expect(text).toMatch(/balance sheet\s+3/);
   });
 
-  it("includes the strongest names", () => {
-    expect(buildDigest(base).text).toMatch(/LITE\s+RS\s+99\s+Strong Buy/);
+  it("lists the Strong Buy book with RS and distance from the MA", () => {
+    const { text, html } = buildDigest(base);
+    expect(text).toMatch(/Strong Buy book \(2\)/);
+    expect(text).toMatch(/LITE\s+RS\s+99\s+vs MA \+12\.3%/);
+    expect(text).toMatch(/DELL\s+RS\s+99\s+vs MA \+4\.0%/);
+    expect(html).toMatch(/Strong Buy book \(2\)/);
+    expect(html).toMatch(/LITE/);
   });
 
-  it("omits the leaders block rather than printing an empty heading", () => {
-    const { text } = buildDigest({ ...base, leaders: [] });
-    expect(text).not.toMatch(/Strongest names/);
+  it("says none rather than printing an empty book", () => {
+    const { text, html } = buildDigest({ ...base, book: [] });
+    expect(text).toMatch(/Strong Buy book \(0\)\n  none/);
+    expect(html).toMatch(/Strong Buy book \(0\)/);
+  });
+
+  it("reports the last refresh run, or that none is recorded", () => {
+    expect(buildDigest(base).text).toMatch(/Refresh: Ran Aug 21/);
+    expect(buildDigest({ ...base, refreshLine: null }).text).toMatch(/Refresh: no run recorded/);
+  });
+
+  it("links to the screener in both parts", () => {
+    const { text, html } = buildDigest(base);
+    expect(text).toContain("https://screener.williamstradingplatform.com");
+    expect(html).toMatch(/href="https:\/\/screener\.williamstradingplatform\.com"/);
   });
 
   it("escapes anything that could inject markup into the html", () => {
@@ -190,17 +208,17 @@ describe("digest formatting against real-shaped data", () => {
   it("rounds the percentile rather than printing the float", () => {
     const d = {
       ...base,
-      leaders: [{ ticker: "AXTI", rsPct: 99.95753715498938, tier: "Hold" }],
+      book: [{ ticker: "AXTI", rsPct: 99.95753715498938, vsMa: 3.14159 }],
     };
     const { text, html } = buildDigest(d);
-    expect(text).toMatch(/AXTI\s+RS\s+100\s+Hold/);
+    expect(text).toMatch(/AXTI\s+RS\s+100\s+vs MA \+3\.1%/);
     expect(text).not.toMatch(/99\.95/);
     expect(html).not.toMatch(/99\.95/);
   });
 
   it("renders an unmeasured percentile as a dash, not as zero", () => {
-    const d = { ...base, leaders: [{ ticker: "NEW", rsPct: null, tier: null }] };
-    expect(buildDigest(d).text).toMatch(/NEW\s+RS\s+--\s+--/);
+    const d = { ...base, book: [{ ticker: "NEW", rsPct: null, vsMa: null }] };
+    expect(buildDigest(d).text).toMatch(/NEW\s+RS\s+--\s+vs MA --/);
   });
 
   /**

@@ -126,6 +126,9 @@ export function suppressionReason(
   return null;
 }
 
+/** The app, linked from both emails. One copy, so the two cannot disagree. */
+export const SCREENER_URL = "https://screener.williamstradingplatform.com";
+
 export const escapeHtml = (s: string): string =>
   s.replace(/[&<>"']/g, (c) =>
     c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
@@ -166,7 +169,7 @@ export function formatAlert(changes: readonly TierChange[], asOf: string): Alert
     "",
     ...lines,
     "",
-    "https://screener.williamstradingplatform.com",
+    SCREENER_URL,
   ].join("\n");
 
   const rows = changes
@@ -182,7 +185,7 @@ export function formatAlert(changes: readonly TierChange[], asOf: string): Alert
     `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.5">` +
     `<p style="margin:0 0 12px"><strong>Tier changes for ${escapeHtml(asOf)}</strong></p>` +
     `<table style="border-collapse:collapse">${rows}</table>` +
-    `<p style="margin:14px 0 0"><a href="https://screener.williamstradingplatform.com">Open the screener</a></p>` +
+    `<p style="margin:14px 0 0"><a href="${SCREENER_URL}">Open the screener</a></p>` +
     `</div>`;
 
   return { subject, text, html };

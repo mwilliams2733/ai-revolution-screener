@@ -13,9 +13,7 @@ import { getScreen, type ScreenPayload } from "./screen-service";
 import { previousTiers } from "./db";
 import { diffTiers } from "./alerts";
 import { buildDigest, tierCounts, type BaselineState, type Digest } from "./digest";
-
-/** How many of the strongest names to list. */
-const LEADERS = 10;
+import { buildRefreshStamp } from "./refresh-stamp";
 
 export interface ComposedDigest {
   readonly digest: Digest;
@@ -71,11 +69,13 @@ export async function composeDigest(force = false): Promise<ComposedDigest> {
     cappedOut: screen.capped,
     healthCapped: screen.healthCapped,
     warnings: screen.meta.warnings,
-    leaders: screen.themed
-      .slice()
-      .sort((a, b) => (b.rsPct ?? -1) - (a.rsPct ?? -1))
-      .slice(0, LEADERS)
-      .map((r) => ({ ticker: r.ticker, rsPct: r.rsPct, tier: r.tier })),
+    // The book is the Strong Buys after every overlay, already in rank order.
+    book: screen.themed
+      .filter((r) => r.tier === "Strong Buy")
+      .map((r) => ({ ticker: r.ticker, rsPct: r.rsPct, vsMa: r.vsMa })),
+    refreshLine: screen.lastRefresh
+      ? buildRefreshStamp(screen.lastRefresh, new Date()).detail
+      : null,
   });
 
   return { digest, screen, baseline };

@@ -21,7 +21,7 @@
  * tier counts that are quietly a fortnight old.
  */
 
-import { escapeHtml, type TierChange } from "./alerts";
+import { escapeHtml, SCREENER_URL, type TierChange } from "./alerts";
 
 export type BaselineState = "live" | "replay" | "none" | "unavailable";
 
@@ -55,8 +55,19 @@ export interface DigestInput {
   readonly healthCapped: number;
   /** Loader failures. Non-empty means the numbers above are suspect. */
   readonly warnings: readonly string[];
-  /** Top names by relative strength, for the body. */
-  readonly leaders: readonly { ticker: string; rsPct: number | null; tier: string | null }[];
+  /**
+   * The Strong Buy book after every overlay, in rank order -- the names that
+   * actually hold a slot this morning. This replaced a "strongest by RS" list,
+   * which on 2026-09-23 led with a stage-capped Hold and read as a
+   * contradiction.
+   */
+  readonly book: readonly { ticker: string; rsPct: number | null; vsMa: number | null }[];
+  /**
+   * One sentence on the last refresh run, from buildRefreshStamp().detail, or
+   * null when no run is recorded. Staleness says whether the numbers are old;
+   * this says whether the thing that updates them is alive.
+   */
+  readonly refreshLine: string | null;
 }
 
 export interface Digest {
@@ -76,8 +87,10 @@ const TIER_ORDER = ["Strong Buy", "Buy", "Hold"] as const;
  */
 const rs = (v: number | null): string => (v == null ? "--" : String(Math.round(v)));
 
-const leaderLine = (l: { ticker: string; rsPct: number | null; tier: string | null }): string =>
-  `${l.ticker.padEnd(6)} RS ${rs(l.rsPct).padStart(3)}  ${l.tier ?? "--"}`;
+const bookLine = (b: DigestInput["book"][number]): string =>
+  `${b.ticker.padEnd(6)} RS ${rs(b.rsPct).padStart(3)}  vs MA ${
+    b.vsMa == null ? "--" : `${b.vsMa >= 0 ? "+" : ""}${b.vsMa.toFixed(1)}%`
+  }`;
 
 /**
  * Subject line, front-loaded with whatever is most wrong.
@@ -127,6 +140,7 @@ export function buildDigest(d: DigestInput): Digest {
   const lines: string[] = [];
 
   lines.push(`Session ${d.asOf} - ${d.stalenessLabel}`);
+  lines.push(`Refresh: ${d.refreshLine ?? "no run recorded"}`);
   if (d.warnings.length > 0) {
     lines.push("", "DATA WARNINGS - the figures below may be wrong:");
     for (const w of d.warnings) lines.push(`  ${w}`);
@@ -147,17 +161,20 @@ export function buildDigest(d: DigestInput): Digest {
     `  balance sheet   ${d.healthCapped}`,
   );
 
-  if (d.leaders.length > 0) {
-    lines.push("", "Strongest names");
-    for (const l of d.leaders) lines.push(`  ${leaderLine(l)}`);
-  }
+  lines.push("", `Strong Buy book (${d.book.length})`);
+  if (d.book.length === 0) lines.push("  none");
+  for (const b of d.book) lines.push(`  ${bookLine(b)}`);
+  lines.push("", SCREENER_URL);
 
   const text = lines.join("\n");
 
   const esc = (s: string) => escapeHtml(s);
-  const html = [
-    `<h2 style="margin:0 0 4px">Screener ${esc(d.asOf)}</h2>`,
+  const html =
+    `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.5">` +
+    [
+      `<h2 style="margin:0 0 4px">Screener ${esc(d.asOf)}</h2>`,
     `<p style="margin:0 0 12px;color:#5B6B7A">${esc(d.stalenessLabel)}</p>`,
+    `<p style="margin:0 0 12px;color:#5B6B7A">Refresh: ${esc(d.refreshLine ?? "no run recorded")}</p>`,
     d.warnings.length > 0
       ? `<p style="padding:8px 12px;border-left:3px solid #A65A1F;color:#A65A1F"><strong>Data warnings</strong><br>${d.warnings.map(esc).join("<br>")}</p>`
       : "",
@@ -174,14 +191,15 @@ export function buildDigest(d: DigestInput): Digest {
         `balance sheet   ${d.healthCapped}`,
       ].join("\n"),
     )}</pre>`,
-    d.leaders.length > 0
-      ? `<h3 style="margin:16px 0 4px">Strongest names</h3><pre style="margin:0;font:13px ui-monospace,monospace">${esc(
-          d.leaders.map(leaderLine).join("\n"),
-        )}</pre>`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `<h3 style="margin:16px 0 4px">Strong Buy book (${d.book.length})</h3>` +
+      `<pre style="margin:0;font:13px ui-monospace,monospace">${esc(
+        d.book.length > 0 ? d.book.map(bookLine).join("\n") : "none",
+      )}</pre>`,
+    `<p style="margin:14px 0 0"><a href="${SCREENER_URL}">Open the screener</a></p>`,
+    ]
+      .filter(Boolean)
+      .join("\n") +
+    `</div>`;
 
   return { subject: digestSubject(d), text, html };
 }
