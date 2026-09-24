@@ -21,8 +21,8 @@ export function isoDaysAgo(n: number): string {
 /**
  * ISO yyyy-mm-dd for "today" as a reader in Phoenix experiences it.
  *
- * Phoenix is UTC-7 with no daylight saving, so the offset is a constant and
- * needs no timezone database. This exists for one purpose: deciding whether
+ * Phoenix is UTC-7 year round with no daylight saving, so its calendar day
+ * never shifts with the seasons. This exists for one purpose: deciding whether
  * the morning digest has already gone out TODAY. That question is asked by a
  * person waking up in Arizona, not by a server in UTC -- and a manual run at
  * 6 PM Phoenix is still "today" to them, whereas in UTC it is already

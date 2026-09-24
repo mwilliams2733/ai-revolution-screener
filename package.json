@@ -19,7 +19,9 @@
     "health": "tsx --env-file=.env.local scripts/health.ts",
     "sectors": "tsx --env-file=.env.local scripts/sectors.ts",
     "backtest": "tsx --env-file=.env.local scripts/backtest.ts",
-    "replay": "tsx --env-file=.env.local scripts/replay-tiers.ts"
+    "replay": "tsx --env-file=.env.local scripts/replay-tiers.ts",
+    "digest:preview": "tsx --env-file=.env.local scripts/preview-digest.ts",
+    "mail-ledger": "tsx --env-file=.env.local scripts/mail-ledger.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
