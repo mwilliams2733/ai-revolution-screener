@@ -115,4 +115,13 @@ describe("applyHysteresis", () => {
     expect(out.tier).toBe("Hold");
     expect(out.held).toBe(false);
   });
+
+  it("reports the tier the band decided on as bandTier", () => {
+    const [held] = applyHysteresis([row({ rsPct: 78, tier: "Buy" })], new Map([["T", "Strong Buy"]]));
+    expect(held.tier).toBe("Strong Buy");
+    expect(held.bandTier).toBe("Strong Buy");
+
+    const [fresh] = applyHysteresis([row({ rsPct: 78, tier: "Buy" })], new Map());
+    expect(fresh.bandTier).toBe("Buy");
+  });
 });
