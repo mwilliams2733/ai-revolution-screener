@@ -11,7 +11,7 @@ const base: DigestInput = {
   buy: 24,
   hold: 75,
   changes: [],
-  changesComparable: true,
+  baseline: "live",
   stageCapped: 23,
   gateDemoted: 3,
   cappedOut: 25,
@@ -52,6 +52,12 @@ describe("digestSubject", () => {
   /** One session behind is normal: the feed is delayed end-of-day. */
   it("does not cry stale at a single session behind", () => {
     expect(digestSubject({ ...base, sessionsBehind: 1 })).not.toMatch(/STALE/);
+  });
+
+  it("names each non-live baseline state differently", () => {
+    expect(digestSubject({ ...base, baseline: "replay" })).toMatch(/baseline not comparable/);
+    expect(digestSubject({ ...base, baseline: "none" })).toMatch(/no baseline yet/);
+    expect(digestSubject({ ...base, baseline: "unavailable" })).toMatch(/BASELINE UNAVAILABLE/);
   });
 });
 
@@ -98,12 +104,29 @@ describe("buildDigest", () => {
   it("refuses to present changes measured against a replayed session", () => {
     const d = {
       ...base,
-      changesComparable: false,
+      baseline: "replay" as const,
       changes: [change("A", "Buy", "Hold", "downgrade")],
     };
     const { text } = buildDigest(d);
     expect(text).toMatch(/not comparable/i);
     expect(text).not.toMatch(/\bA\s+Buy/);
+  });
+
+  /**
+   * A failed database read used to be reported as "the previous session was
+   * reconstructed" -- a plausible-sounding sentence that hid an outage inside
+   * the one email built to reveal outages.
+   */
+  it("calls a failed baseline lookup a failure, not a replay", () => {
+    const { text } = buildDigest({ ...base, baseline: "unavailable" });
+    expect(text).toMatch(/could not be read from the database/);
+    expect(text).not.toMatch(/reconstructed/);
+  });
+
+  it("does not blame a replay when there simply is no earlier session", () => {
+    const { text } = buildDigest({ ...base, baseline: "none" });
+    expect(text).toMatch(/No previous session/);
+    expect(text).not.toMatch(/reconstructed/);
   });
 
   it("puts data warnings above the figures they undermine", () => {
@@ -186,15 +209,15 @@ describe("digest formatting against real-shaped data", () => {
    * baseline was not comparable -- the email contradicted itself.
    */
   it("does not report an incomparable baseline as a quiet market", () => {
-    const d = { ...base, changesComparable: false };
+    const d = { ...base, baseline: "replay" as const };
     const subject = digestSubject(d);
     expect(subject).toMatch(/not comparable/i);
     expect(subject).not.toMatch(/no tier changes/);
   });
 
   it("keeps subject and body telling the same story", () => {
-    for (const comparable of [true, false]) {
-      const d = { ...base, changesComparable: comparable, changes: [] };
+    for (const baseline of ["live", "replay"] as const) {
+      const d = { ...base, baseline, changes: [] };
       const { subject, text } = buildDigest(d);
       expect(/not comparable/i.test(subject)).toBe(/not comparable/i.test(text));
     }

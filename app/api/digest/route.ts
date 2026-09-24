@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import { getScreen } from "@/lib/screen-service";
 import { previousTiers, alreadySent, recordMailSend } from "@/lib/db";
 import { diffTiers } from "@/lib/alerts";
-import { buildDigest, tierCounts } from "@/lib/digest";
+import { buildDigest, tierCounts, type BaselineState } from "@/lib/digest";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { digestKey } from "@/lib/mail-ledger";
 import { isoDaysAgo } from "@/lib/dates";
@@ -76,15 +76,30 @@ async function handle(req: Request) {
 
   const screen = await getScreen();
 
-  // Diff against the previous session, exactly as the alert does -- and with
-  // the same refusal to compare against a replayed one, because a replay runs
-  // without the fundamental gate and the difference would be between rulesets
-  // rather than between days.
-  const previous = await previousTiers(screen.asOf).catch(() => null);
-  const changes = diffTiers(
-    previous?.tiers ?? new Map(),
-    screen.themed.map((r) => ({ ticker: r.ticker, tier: r.tier, rsPct: r.rsPct, vsMa: r.vsMa })),
-  );
+  // Diff against the previous session, exactly as the alert does. Three
+  // non-live outcomes are kept apart on purpose: "no earlier session",
+  // "earlier session is a replay" and "the lookup failed" are different
+  // facts, and the last one is the kind of failure this email exists to
+  // surface, so it must not be reported as one of the other two.
+  let baseline: BaselineState;
+  let previousTierMap: ReadonlyMap<string, string> = new Map();
+  try {
+    const previous = await previousTiers(screen.asOf);
+    if (!previous) baseline = "none";
+    else {
+      baseline = previous.source;
+      previousTierMap = previous.tiers;
+    }
+  } catch {
+    baseline = "unavailable";
+  }
+  const changes =
+    baseline === "live"
+      ? diffTiers(
+          previousTierMap,
+          screen.themed.map((r) => ({ ticker: r.ticker, tier: r.tier, rsPct: r.rsPct, vsMa: r.vsMa })),
+        )
+      : [];
 
   const counts = tierCounts(screen.themed);
   const digest = buildDigest({
@@ -95,7 +110,7 @@ async function handle(req: Request) {
     themedCount: screen.themed.length,
     ...counts,
     changes,
-    changesComparable: previous?.source === "live",
+    baseline,
     stageCapped: screen.stageDemoted,
     gateDemoted: screen.demoted,
     cappedOut: screen.capped,
