@@ -13,10 +13,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { getScreen } from "@/lib/screen-service";
-import { previousTiers, claimMailSend, releaseMailSend } from "@/lib/db";
-import { diffTiers } from "@/lib/alerts";
-import { buildDigest, tierCounts, type BaselineState } from "@/lib/digest";
+import { claimMailSend, releaseMailSend } from "@/lib/db";
+import { composeDigest } from "@/lib/digest-service";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { digestKey } from "@/lib/mail-ledger";
 import { phoenixToday } from "@/lib/dates";
@@ -41,9 +39,6 @@ export const dynamic = "force-dynamic";
  * it. This buys room until that is worth doing.
  */
 export const maxDuration = 300;
-
-/** How many of the strongest names to list. */
-const LEADERS = 10;
 
 /** Constant-time-ish compare, to avoid leaking the secret through timing. */
 function secretMatches(given: string, expected: string): boolean {
@@ -74,54 +69,7 @@ async function handle(req: Request) {
     );
   }
 
-  const screen = await getScreen();
-
-  // Diff against the previous session, exactly as the alert does. Three
-  // non-live outcomes are kept apart on purpose: "no earlier session",
-  // "earlier session is a replay" and "the lookup failed" are different
-  // facts, and the last one is the kind of failure this email exists to
-  // surface, so it must not be reported as one of the other two.
-  let baseline: BaselineState;
-  let previousTierMap: ReadonlyMap<string, string> = new Map();
-  try {
-    const previous = await previousTiers(screen.asOf);
-    if (!previous) baseline = "none";
-    else {
-      baseline = previous.source;
-      previousTierMap = previous.tiers;
-    }
-  } catch {
-    baseline = "unavailable";
-  }
-  const changes =
-    baseline === "live"
-      ? diffTiers(
-          previousTierMap,
-          screen.themed.map((r) => ({ ticker: r.ticker, tier: r.tier, rsPct: r.rsPct, vsMa: r.vsMa })),
-        )
-      : [];
-
-  const counts = tierCounts(screen.themed);
-  const digest = buildDigest({
-    asOf: screen.asOf,
-    sessionsBehind: screen.staleness.sessionsBehind,
-    stalenessLabel: screen.staleness.label,
-    universeSize: screen.universeSize,
-    themedCount: screen.themed.length,
-    ...counts,
-    changes,
-    baseline,
-    stageCapped: screen.stageDemoted,
-    gateDemoted: screen.demoted,
-    cappedOut: screen.capped,
-    healthCapped: screen.healthCapped,
-    warnings: screen.meta.warnings,
-    leaders: screen.themed
-      .slice()
-      .sort((a, b) => (b.rsPct ?? -1) - (a.rsPct ?? -1))
-      .slice(0, LEADERS)
-      .map((r) => ({ ticker: r.ticker, rsPct: r.rsPct, tier: r.tier })),
-  });
+  const { digest, screen } = await composeDigest();
 
   const mail = readMailConfig();
   if (!mail) {
