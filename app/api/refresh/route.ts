@@ -186,7 +186,15 @@ async function handle(req: Request) {
     }
 
     // Snapshot the screen so tier changes are diffable tomorrow.
-    const screen = await getScreen();
+    //
+    // FORCED. getScreen() memoises for 15 minutes at module level, and a warm
+    // instance that served the page just before this cron fired would hand
+    // back the screen computed BEFORE today's bars were stored: asOf would be
+    // yesterday, yesterday's snapshot would be overwritten, today's would never
+    // be written, and the response would still say ok. The recompute costs a
+    // few seconds once a day; a missing session in tier_history costs a wrong
+    // hysteresis baseline tomorrow.
+    const screen = await getScreen(true);
     const tierRows = screen.themed.map((r) => ({
       ticker: r.ticker,
       rsPct: r.rsPct,
