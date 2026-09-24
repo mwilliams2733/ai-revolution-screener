@@ -15,6 +15,7 @@
  */
 
 import type { PolygonBar } from "./factors";
+import { settledSessions } from "./session-ledger";
 
 const BASE = "https://api.polygon.io";
 
@@ -253,7 +254,13 @@ export async function tradingCalendar(
     `/v2/aggs/ticker/${proxyTicker}/range/1/day/${from}/${to}?adjusted=true&sort=desc&limit=50000`,
     opts,
   );
-  return (res.results ?? []).map((r) => new Date(r.t).toISOString().slice(0, 10));
+  // Settled sessions only. While the market is open the proxy already has an
+  // in-progress bar for today, and every caller that took it as a session
+  // stored or ranked a mid-morning snapshot. See settleInstant().
+  return settledSessions(
+    (res.results ?? []).map((r) => new Date(r.t).toISOString().slice(0, 10)),
+    new Date(),
+  );
 }
 
 /**

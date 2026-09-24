@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifySession, sessionsToFetch } from "./session-ledger";
+import { classifySession, sessionsNeedingFetch, sessionsToFetch, settledSessions, settleInstant } from "./session-ledger";
 
 describe("classifySession", () => {
   it("stores a session that returned bars", () => {
@@ -50,5 +50,69 @@ describe("sessionsToFetch", () => {
 
   it("returns nothing when everything is stored", () => {
     expect(sessionsToFetch(calendar, calendar, 5)).toEqual([]);
+  });
+});
+
+describe("settleInstant", () => {
+  it("is 22:00 UTC during daylight saving", () => {
+    expect(settleInstant("2026-09-22").toISOString()).toBe("2026-09-22T22:00:00.000Z");
+  });
+
+  it("is 23:00 UTC in standard time", () => {
+    expect(settleInstant("2026-12-01").toISOString()).toBe("2026-12-01T23:00:00.000Z");
+  });
+
+  /** DST ended Sunday 2026-11-01; the Monday after is standard time. */
+  it("follows the DST switch rather than a fixed offset", () => {
+    expect(settleInstant("2026-10-30").toISOString()).toBe("2026-10-30T22:00:00.000Z");
+    expect(settleInstant("2026-11-02").toISOString()).toBe("2026-11-02T23:00:00.000Z");
+  });
+});
+
+describe("settledSessions", () => {
+  const cal = ["2026-09-23", "2026-09-22", "2026-09-21"];
+
+  /**
+   * The bug this guards. At 15:44 UTC on 2026-09-23 the proxy ticker already
+   * had a bar for that day, and the refresh stored a mid-morning snapshot as
+   * the session.
+   */
+  it("drops today while the market is open", () => {
+    expect(settledSessions(cal, new Date("2026-09-23T15:44:00Z"))).toEqual(["2026-09-22", "2026-09-21"]);
+  });
+
+  it("drops today between the close and the settle time", () => {
+    expect(settledSessions(cal, new Date("2026-09-23T21:30:00Z"))).toEqual(["2026-09-22", "2026-09-21"]);
+  });
+
+  it("includes today once it has settled", () => {
+    expect(settledSessions(cal, new Date("2026-09-23T22:00:00Z"))).toEqual(cal);
+  });
+});
+
+describe("sessionsNeedingFetch", () => {
+  const cal = ["2026-09-22", "2026-09-21", "2026-09-18"];
+
+  it("lists a session that was never fetched", () => {
+    const fetched = new Map([
+      ["2026-09-21", new Date("2026-09-22T12:00:00Z")],
+      ["2026-09-18", new Date("2026-09-19T12:00:00Z")],
+    ]);
+    expect(sessionsNeedingFetch(cal, fetched)).toEqual(["2026-09-22"]);
+  });
+
+  /** The repair: a session stored mid-morning is not done, however present it is. */
+  it("lists a session fetched before it settled", () => {
+    const fetched = new Map([
+      ["2026-09-22", new Date("2026-09-22T15:55:51Z")],
+      ["2026-09-21", new Date("2026-09-22T12:00:00Z")],
+      ["2026-09-18", new Date("2026-09-18T15:24:19Z")],
+    ]);
+    expect(sessionsNeedingFetch(cal, fetched)).toEqual(["2026-09-22", "2026-09-18"]);
+  });
+
+  it("leaves alone a session fetched after it settled", () => {
+    const fetched = new Map(cal.map((d) => [d, new Date(`${d}T23:30:00Z`)] as const));
+    expect(sessionsNeedingFetch(cal, fetched)).toEqual([]);
   });
 });

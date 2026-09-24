@@ -51,3 +51,66 @@ export function sessionsToFetch(
   const have = new Set(stored);
   return calendar.slice(0, target).filter((d) => !have.has(d));
 }
+
+/**
+ * When a session's daily bar can be trusted: 18:00 New York time on its date.
+ *
+ * Polygon returns an IN-PROGRESS daily aggregate while the market is open, so
+ * a session fetched before the close is a mid-morning snapshot -- right open,
+ * wrong close, a third of the volume. The refresh used to accept today as a
+ * session whenever the proxy ticker had a bar for it, and from 2026-08-31 the
+ * late backup scheduler landed during market hours every day, storing 17
+ * sessions that were never re-fetched.
+ *
+ * Two hours after the close: bars fetched ~1.4 h after the close matched the
+ * final closes exactly and held >99% of final volume, and 18:00 ET is when
+ * the old afternoon refresh ran. New York observes DST, so this resolves the
+ * real offset for the date rather than assuming one.
+ */
+export const SETTLE_HOUR_NY = 18;
+
+/** The UTC instant at which `session` (yyyy-mm-dd) is settled. */
+export function settleInstant(session: string, hourNy: number = SETTLE_HOUR_NY): Date {
+  // Guess the instant assuming UTC, read back what New York's wall clock says
+  // at that instant, and correct by the difference. One correction is exact
+  // for any hour away from a DST switch, and 18:00 never is one.
+  const guess = new Date(`${session}T${String(hourNy).padStart(2, "0")}:00:00Z`);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(guess);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const wall = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
+  return new Date(guess.getTime() + (guess.getTime() - wall));
+}
+
+/** Sessions whose bars are final as of `now`. Order is preserved. */
+export function settledSessions(calendar: readonly string[], now: Date): string[] {
+  return calendar.filter((d) => settleInstant(d).getTime() <= now.getTime());
+}
+
+/**
+ * Sessions the refresh must (re)fetch, in calendar order (newest first).
+ *
+ * A session needs fetching when it is missing from the ledger OR was fetched
+ * before it settled. Asking "is each session done" rather than "is it present"
+ * is what lets the 17 mid-morning snapshots repair themselves, and keeps any
+ * future early fetch from becoming permanent.
+ *
+ * @param calendar   settled sessions, newest first
+ * @param fetchedAt  session -> when it was last fetched, for stored sessions
+ */
+export function sessionsNeedingFetch(
+  calendar: readonly string[],
+  fetchedAt: ReadonlyMap<string, Date>,
+): string[] {
+  return calendar.filter((d) => {
+    const f = fetchedAt.get(d);
+    return f == null || f.getTime() < settleInstant(d).getTime();
+  });
+}
