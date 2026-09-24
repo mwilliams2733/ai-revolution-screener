@@ -439,6 +439,23 @@ export async function missingSessions(candidates: readonly string[]): Promise<st
   return candidates.filter((d) => !known.has(d));
 }
 
+/**
+ * When each candidate session was last fetched, for those in the ledger.
+ *
+ * The refresh uses this with sessionsNeedingFetch() to re-fetch any session
+ * stored before it settled. Presence alone is not enough: from 2026-08-31 to
+ * 2026-09-23 every stored session was a mid-morning snapshot.
+ */
+export async function sessionFetchTimes(candidates: readonly string[]): Promise<Map<string, Date>> {
+  if (candidates.length === 0) return new Map();
+  const sql = client();
+  const rows = (await sql`
+    SELECT session::text AS session, fetched_at FROM sessions
+    WHERE session = ANY(${[...candidates]}::date[]) AND is_trading
+  `) as { session: string; fetched_at: string }[];
+  return new Map(rows.map((r) => [r.session, new Date(r.fetched_at)]));
+}
+
 /** Trading sessions with bars, newest first. Drives anchor selection. */
 export async function storedTradingSessions(): Promise<string[]> {
   const sql = client();

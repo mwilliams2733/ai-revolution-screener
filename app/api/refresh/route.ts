@@ -16,9 +16,9 @@ import { groupedDaily, tickerBars, tradingCalendar } from "@/lib/polygon";
 import {
   finishRun,
   insertBars,
-  missingSessions,
   previousTiers,
   recordSession,
+  sessionFetchTimes,
   startRun,
   upsertTierHistory,
   handledSplits,
@@ -33,7 +33,7 @@ import {
 import { getScreen } from "@/lib/screen-service";
 import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
 import { readMailConfig, sendMail } from "@/lib/mailer";
-import { classifySession } from "@/lib/session-ledger";
+import { classifySession, sessionsNeedingFetch } from "@/lib/session-ledger";
 import { isoDaysAgo } from "@/lib/dates";
 import { pendingRefetches, refetchTargets } from "@/lib/splits";
 import { alertKey } from "@/lib/mail-ledger";
@@ -119,7 +119,13 @@ async function handle(req: Request) {
     // backlog drains instead of falling off the end.
     const calendar = await tradingCalendar(isoDaysAgo(CATCHUP_WINDOW * 2), isoDaysAgo(0));
     const recent = calendar.slice(0, CATCHUP_WINDOW);
-    const todo = (await missingSessions(recent)).slice(0, MAX_SESSIONS_PER_RUN);
+    // Missing sessions AND sessions stored before they settled. The second
+    // set is how mid-morning snapshots stored before this fix get repaired:
+    // insertBars and recordSession are upserts, so a re-fetch overwrites the
+    // partial bars and stamps a new fetched_at. Newest first, so the sessions
+    // the screen reads most are repaired first.
+    const needing = sessionsNeedingFetch(recent, await sessionFetchTimes(recent));
+    const todo = needing.slice(0, MAX_SESSIONS_PER_RUN);
     // Bounds for any split repair below: a repair must never widen the stored
     // calendar, or one ticker gets sessions no other name has and every
     // positional lookback is off by one for it.
@@ -272,7 +278,7 @@ async function handle(req: Request) {
       splitsRepaired: repairedTickers,
       // Both backlogs, so a run that is quietly falling behind is visible in
       // the response rather than only in the data.
-      remaining: Math.max(0, (await missingSessions(recent)).length),
+      remaining: Math.max(0, needing.length - stored.length),
       splitsPending: Math.max(0, pending.length - targets.length),
     });
   } catch (e) {
