@@ -36,6 +36,13 @@ export const DEFAULT_BAND = 4;
 export interface HysteresisFields {
   /** True when the band changed the outcome. */
   readonly held: boolean;
+  /**
+   * The tier after the band and BEFORE every demoting overlay. This is what
+   * tier_history.momentum_tier stores and what tomorrow's band compares
+   * against. Capturing it later -- after the stage rule -- made a name that
+   * was merely capped look like it had lost the tier, which defeated the band.
+   */
+  readonly bandTier: Tier | null;
 }
 
 /**
@@ -90,12 +97,12 @@ export function applyHysteresis<T extends ScreenRow>(
 ): (T & HysteresisFields)[] {
   return rows.map((r) => {
     const before = previous.get(r.ticker) ?? null;
-    if (before == null || r.rsPct == null) return { ...r, held: false };
+    if (before == null || r.rsPct == null) return { ...r, held: false, bandTier: r.tier };
 
     const sticky = hysteresisTier(r.rsPct, r.vsMa, before, p, band);
-    if (sticky === r.tier) return { ...r, held: false };
+    if (sticky === r.tier) return { ...r, held: false, bandTier: r.tier };
 
-    return { ...r, tier: sticky, weight: tierWeight(sticky, p), held: true };
+    return { ...r, tier: sticky, weight: tierWeight(sticky, p), held: true, bandTier: sticky };
   });
 }
 

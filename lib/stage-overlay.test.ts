@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { applyHysteresis } from "./hysteresis";
 import { applyStageRule, stageDemotedCount } from "./stage-overlay";
 import type { StageReport } from "./trend-template";
 import type { ScreenRow, Tier } from "./types";
@@ -96,5 +97,20 @@ describe("applyStageRule", () => {
       row({ ticker: "C", tier: "Buy", weight: 0.05, stage: stage(4) }),
     ]);
     expect(stageDemotedCount(out)).toBe(2);
+  });
+
+  /**
+   * The value tomorrow's hysteresis reads must be the band's tier, not the
+   * capped one. Storing the capped tier made a topping Strong Buy look like a
+   * Buy incumbent, which then needed an extra margin to win the tier back.
+   */
+  it("caps the final tier but leaves the band tier alone", () => {
+    const banded = applyHysteresis(
+      [row({ rsPct: 90, tier: "Strong Buy", stage: stage(3) })],
+      new Map<string, Tier>([["T", "Strong Buy"]]),
+    );
+    const [out] = applyStageRule(banded);
+    expect(out.tier).toBe("Buy");
+    expect(out.bandTier).toBe("Strong Buy");
   });
 });

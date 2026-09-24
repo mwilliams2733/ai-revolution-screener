@@ -206,8 +206,12 @@ async function handle(req: Request) {
       rsPct: r.rsPct,
       vsMa: r.vsMa,
       tier: r.tier,
-      // The pre-overlay tier, so tomorrow's hysteresis compares like with like.
-      momentumTier: r.momentumTier,
+      // The tier after the hysteresis band and BEFORE the stage, fundamental,
+      // health and cap overlays, so tomorrow's band compares like with like.
+      // r.momentumTier (from the fundamental gate) is post-stage and must not
+      // be used here; see db/schema.sql on momentum_tier. The replay script
+      // stores the same value.
+      momentumTier: r.bandTier,
       weight: r.weight,
     }));
     // Read the previous session's tiers BEFORE writing today's, or the diff
