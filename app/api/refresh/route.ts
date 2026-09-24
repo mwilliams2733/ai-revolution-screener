@@ -27,8 +27,8 @@ import {
   splitHistory,
   storedCalendarBounds,
   tickersWithBars,
-  alreadySent,
-  recordMailSend,
+  claimMailSend,
+  releaseMailSend,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
 import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
@@ -239,7 +239,7 @@ async function handle(req: Request) {
         };
       } else {
         const key = alertKey(screen.asOf);
-        if (await alreadySent("alert", key)) {
+        if (!(await claimMailSend("alert", key))) {
           alert = {
             sent: false,
             reason: "alert already sent for this session",
@@ -249,10 +249,10 @@ async function handle(req: Request) {
           const { subject, text, html } = formatAlert(changes, screen.asOf);
           // Deliberately still a 200 on failure, unlike /api/digest: this route
           // has already stored bars and snapshotted tiers. A failed email must
-          // not mark that work as failed. The reason field now says what went
+          // not mark that work as failed. The reason field says what went
           // wrong without changing the status.
           const result = await sendMail(mail, subject, text, html);
-          if (result.sent) await recordMailSend("alert", key);
+          if (!result.sent) await releaseMailSend("alert", key);
           alert = { ...result, changes: changes.length, subject };
         }
       }

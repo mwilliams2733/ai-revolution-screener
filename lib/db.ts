@@ -788,36 +788,40 @@ async function ensureMailLedger(): Promise<void> {
 }
 
 /**
- * Has this exact message already gone out?
+ * Try to claim a message key. True means this caller owns delivery.
  *
- * Returns false when there is no database: without one we cannot know, and a
+ * The claim is one atomic INSERT, so two schedulers arriving inside the same
+ * few seconds cannot both win: the second sees a conflict and skips. The
+ * earlier check-then-record design left the whole SMTP round trip as a
+ * window in which both callers had checked and neither had recorded.
+ *
+ * Returns true when there is no database: without one we cannot know, and a
  * possible duplicate is a far smaller harm than suppressing the only email
  * that would have told you the pipeline is alive.
  */
-export async function alreadySent(kind: string, dedupeKey: string): Promise<boolean> {
-  if (!process.env.DATABASE_URL) return false;
+export async function claimMailSend(kind: string, dedupeKey: string): Promise<boolean> {
+  if (!process.env.DATABASE_URL) return true;
   await ensureMailLedger();
   const sql = client();
   const rows = (await sql`
-    SELECT 1 FROM mail_sends WHERE kind = ${kind} AND dedupe_key = ${dedupeKey} LIMIT 1
+    INSERT INTO mail_sends (kind, dedupe_key) VALUES (${kind}, ${dedupeKey})
+    ON CONFLICT (kind, dedupe_key) DO NOTHING
+    RETURNING 1
   `) as unknown[];
   return rows.length > 0;
 }
 
 /**
- * Record a message that was actually delivered.
+ * Give a claim back after a failed send, so a later caller can retry.
  *
- * Called only AFTER a successful send, never before. Recording first would be
- * at-most-once delivery: a send that then failed would be permanently marked
- * done and the email would never arrive. A duplicate is recoverable; a
- * silently missing digest is not.
+ * This is what keeps claim-first from being at-most-once delivery: a send
+ * that fails releases its key and the next scheduler sends normally. The
+ * only way a key stays claimed without an email is the process dying
+ * between claim and release; delete that row by hand (a `mail-ledger forget`
+ * script is planned for exactly this).
  */
-export async function recordMailSend(kind: string, dedupeKey: string): Promise<void> {
+export async function releaseMailSend(kind: string, dedupeKey: string): Promise<void> {
   if (!process.env.DATABASE_URL) return;
-  await ensureMailLedger();
   const sql = client();
-  await sql`
-    INSERT INTO mail_sends (kind, dedupe_key) VALUES (${kind}, ${dedupeKey})
-    ON CONFLICT (kind, dedupe_key) DO NOTHING
-  `;
+  await sql`DELETE FROM mail_sends WHERE kind = ${kind} AND dedupe_key = ${dedupeKey}`;
 }

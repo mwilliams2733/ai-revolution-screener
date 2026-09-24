@@ -14,7 +14,7 @@
 
 import { NextResponse } from "next/server";
 import { getScreen } from "@/lib/screen-service";
-import { previousTiers, alreadySent, recordMailSend } from "@/lib/db";
+import { previousTiers, claimMailSend, releaseMailSend } from "@/lib/db";
 import { diffTiers } from "@/lib/alerts";
 import { buildDigest, tierCounts, type BaselineState } from "@/lib/digest";
 import { readMailConfig, sendMail } from "@/lib/mailer";
@@ -145,7 +145,7 @@ async function handle(req: Request) {
   // routes are idempotent in what they WRITE, but delivery is not, so the
   // second caller must skip rather than send a second identical email.
   const key = digestKey(phoenixToday(), screen.asOf);
-  if (await alreadySent("digest", key)) {
+  if (!(await claimMailSend("digest", key))) {
     return NextResponse.json({
       ok: true,
       sent: false,
@@ -155,7 +155,9 @@ async function handle(req: Request) {
   }
 
   const result = await sendMail(mail, digest.subject, digest.text, digest.html);
-  if (result.sent) await recordMailSend("digest", key);
+  // A failed send hands the key back, so the other scheduler can still
+  // deliver this morning instead of finding the day already marked done.
+  if (!result.sent) await releaseMailSend("digest", key);
 
   // A failed send is a failed job, not a 200 with a sad field. This route
   // writes nothing, so answering non-2xx costs no data and is the only way the

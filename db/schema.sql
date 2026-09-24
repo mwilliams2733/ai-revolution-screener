@@ -204,8 +204,10 @@ CREATE TABLE IF NOT EXISTS split_refetch (
 --                         recomputes an identical change set and would report
 --                         the morning's moves again in the afternoon.
 --
--- Rows are written only AFTER a successful send: recording first would be
--- at-most-once delivery, permanently marking a failed send as done.
+-- A row is CLAIMED before the send (one atomic INSERT, so two schedulers
+-- inside the same seconds cannot both win) and DELETED again if the send
+-- fails, so a failed delivery never marks the day as done. See
+-- claimMailSend / releaseMailSend in lib/db.ts.
 CREATE TABLE IF NOT EXISTS mail_sends (
   kind       TEXT NOT NULL,              -- 'digest' | 'alert'
   dedupe_key TEXT NOT NULL,
