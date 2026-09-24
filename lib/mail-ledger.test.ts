@@ -3,20 +3,28 @@ import { alertKey, digestKey } from "./mail-ledger";
 
 describe("digestKey", () => {
   /**
-   * The bug this guards: keying the digest on the SESSION would mean a stalled
-   * pipeline sends one email and then goes silent -- the exact failure the
-   * digest exists to make visible. It must key on the send day instead.
+   * The bug this guards: keying the digest on the SESSION alone would mean a
+   * stalled pipeline sends one email and then goes silent -- the exact
+   * failure the digest exists to make visible. The day must be in the key.
    */
   it("changes every day even when the session does not", () => {
-    expect(digestKey("2026-09-14")).not.toBe(digestKey("2026-09-15"));
+    expect(digestKey("2026-09-14", "2026-09-11")).not.toBe(digestKey("2026-09-15", "2026-09-11"));
   });
 
-  it("is stable within a day, so a second caller is suppressed", () => {
-    expect(digestKey("2026-09-15")).toBe(digestKey("2026-09-15"));
+  it("is stable within a day for the same session, so a second caller is suppressed", () => {
+    expect(digestKey("2026-09-15", "2026-09-14")).toBe(digestKey("2026-09-15", "2026-09-14"));
+  });
+
+  /**
+   * The other bug: the digest fired before the refresh landed, reported one
+   * session behind, and the corrected data never got an email that day.
+   */
+  it("changes within a day when the session advances", () => {
+    expect(digestKey("2026-09-15", "2026-09-12")).not.toBe(digestKey("2026-09-15", "2026-09-14"));
   });
 
   it("is namespaced so it cannot collide with an alert key", () => {
-    expect(digestKey("2026-09-15")).not.toBe(alertKey("2026-09-15"));
+    expect(digestKey("2026-09-15", "2026-09-15")).not.toBe(alertKey("2026-09-15"));
   });
 });
 

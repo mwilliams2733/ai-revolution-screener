@@ -10,19 +10,26 @@
 export type MailKind = "digest" | "alert";
 
 /**
- * The digest is keyed by the DAY IT IS SENT, not by the session it describes.
+ * The digest is keyed by the DAY IT IS SENT and the SESSION it describes.
  *
- * This looks wrong and is not. The digest is a heartbeat: it must arrive every
- * weekday even when the data has not moved, because "4 sessions behind" is
- * precisely the message that tells you the refresh died. Keying on asOf would
- * mean a stalled pipeline -- the one case the digest exists for -- sends ONE
- * email and then goes silent, which is the exact failure it was built to
- * prevent.
+ * Keying on the day alone looks right and is not quite. The digest is a
+ * heartbeat: it must arrive every weekday even when the data has not moved,
+ * because "4 sessions behind" is precisely the message that tells you the
+ * refresh died -- so the day is part of the key, and a stalled pipeline
+ * still sends exactly once per day (the session does not change).
  *
- * `today` is a UTC yyyy-mm-dd string, from isoDaysAgo(0).
+ * The session is ALSO part of the key because the 6 AM digest can legally
+ * fire before the 5 AM refresh has landed (Hobby cron precision is the whole
+ * hour). Without asOf in the key that morning's "one session behind" email
+ * is the only one you get; with it, the later backup scheduler sends one
+ * corrected digest once the new session exists. Never more than two a day.
+ *
+ * `today` is the Phoenix calendar day from phoenixToday(), not UTC: a manual
+ * run at 6 PM Phoenix is still "today" to the reader, but is already
+ * tomorrow in UTC and would silence the next real morning.
  */
-export function digestKey(today: string): string {
-  return `digest:${today}`;
+export function digestKey(today: string, asOf: string): string {
+  return `digest:${today}:${asOf}`;
 }
 
 /**

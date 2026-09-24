@@ -19,7 +19,7 @@ import { diffTiers } from "@/lib/alerts";
 import { buildDigest, tierCounts, type BaselineState } from "@/lib/digest";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { digestKey } from "@/lib/mail-ledger";
-import { isoDaysAgo } from "@/lib/dates";
+import { phoenixToday } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -144,12 +144,12 @@ async function handle(req: Request) {
   // schedule, deliberately -- either scheduler alone can silently stop. The
   // routes are idempotent in what they WRITE, but delivery is not, so the
   // second caller must skip rather than send a second identical email.
-  const key = digestKey(isoDaysAgo(0));
+  const key = digestKey(phoenixToday(), screen.asOf);
   if (await alreadySent("digest", key)) {
     return NextResponse.json({
       ok: true,
       sent: false,
-      reason: "digest already sent today",
+      reason: "digest already sent today for this session",
       subject: digest.subject,
     });
   }
