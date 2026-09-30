@@ -49,6 +49,7 @@ import {
 } from "./tier-history-overlay";
 import type { TrendBar } from "./trend-template";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
+import { buildPortfolio } from "./tiers";
 import { fundamentalsFor, type Fundamentals } from "./edgar";
 import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
 import { capHeldCount, capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -599,7 +600,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     }
   }
 
-  const { ranked, themed, portfolio, universeSize } = runScreen({
+  const { ranked, themed, universeSize } = runScreen({
     snapshots: snapshots as unknown as Snapshots,
     names: liquid,
     params: SCREEN_PARAMS,
@@ -672,6 +673,12 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   const limited = capStrongBuy(guarded, STRONG_BUY_LIMIT, undefined, incumbents);
 
+  // The book is selected from the FINAL tiers. runScreen also returns a
+  // portfolio, but it is built from the raw momentum tiers before the six
+  // overlays above re-decide them, so it can hold a stage-4 name the screen
+  // shows as Hold and omit one the overlays promoted. Measuring risk over
+  // that book described a portfolio the screen's own rules reject.
+  const portfolio = buildPortfolio(limited, SCREEN_PARAMS);
 
   // Volume metrics grade against the FULL ranked universe, never the theme.
   const volumeBars = await loadVolumeBars(warnings);
