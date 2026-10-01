@@ -263,13 +263,13 @@ distinction is load-bearing twice:
   applying today's EDGAR filings to a 2025 session is lookahead — so diffing
   live against replayed reports the difference between two *rulesets* as if the
   market had moved. That is exactly how two junk alerts went out.
-- **The replay will not overwrite a live row**, but it can add to a live
-  session. Its upsert only protects rows that already exist, and the replay's
-  theme set is not always identical to the live one, so a ticker the live
-  snapshot lacks is inserted as a `replay` row into that live session. A
-  session holding both kinds counts as replayed, which suppresses the next
-  alert. `npm run audit` checks that no session mixes the two. Re-running the
-  replay is safe for gaps, but check the audit afterwards.
+- **The replay never writes into a live session.** Live rows are the only
+  genuinely out-of-sample evidence this project will ever have, so any session
+  holding a live row is skipped whole. Skipping row by row is not enough: the
+  replay's theme set differs slightly from the live one, and one extra replay
+  row turns a live session into a mixed one, which suppresses the next alert.
+  `npm run replay` is therefore safe to re-run, and `npm run audit` still
+  checks that no session mixes the two.
 
 `npm run backtest` prints the split, and `npm run audit` warns while the live
 count is still too low to conclude anything. About 20 live sessions at a

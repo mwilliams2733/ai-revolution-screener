@@ -20,13 +20,14 @@
  * row therefore reflects slightly looser rules than a live one, and rows are
  * marked so nobody later mistakes one for the other.
  *
- * NEVER OVERWRITTEN: rows the nightly refresh wrote live. Those are the only
+ * NEVER TOUCHED: sessions the nightly refresh wrote live. Those are the only
  * genuinely out-of-sample evidence this project will ever have -- one honest
  * observation per session, accumulating forward -- and a reconstruction of the
- * same day is strictly worse information. The guarded ON CONFLICT below leaves
- * them alone, so this script is safe to re-run as often as you like without
- * eroding the live record. It is also what stops a rerun from turning the next
- * refresh's alert into a diff between two rulesets.
+ * same day is strictly worse information. A live session is skipped WHOLE, not
+ * just row by row: the replay's theme set differs slightly from the live one,
+ * and inserting even one extra replay row turns the session into a mixed one
+ * that previousTiers() reads as a replay. See lib/replay-guard.ts. The run is
+ * therefore safe to repeat as often as you like.
  *
  * Also approximate: the theme map and the crowding veto are today's. A name
  * added to the theme last month appears throughout the reconstructed history.
@@ -42,6 +43,7 @@ import { applyStageRule } from "../lib/stage-overlay";
 import { applyTrend } from "../lib/trend-overlay";
 import { capStrongBuy } from "../lib/strong-buy-cap";
 import { applyHysteresis } from "../lib/hysteresis";
+import { replayMayWrite } from "../lib/replay-guard";
 import { STRONG_BUY_LIMIT } from "../lib/screen-service";
 import type { Snapshots, Tier } from "../lib/types";
 
@@ -176,12 +178,25 @@ async function main(): Promise<void> {
 
   // --- replay OLDEST first: hysteresis is stateful, so each session needs the
   // previous session's momentum tier, carried forward in memory. ---
+  // Sessions the nightly refresh wrote live. The replay still COMPUTES them,
+  // because hysteresis and the cap's incumbency carry forward from one
+  // session to the next, but it never writes into them. See lib/replay-guard.ts.
+  const liveSessions = new Set(
+    (
+      (await sql`
+        SELECT DISTINCT session::text AS session FROM tier_history WHERE source = 'live'
+      `) as { session: string }[]
+    ).map((r) => r.session),
+  );
+  console.log(`live sessions (computed, never written): ${liveSessions.size}\n`);
+
   const order = [...replayable];
   let prior = new Map<string, Tier>();
   // Last session's final Strong Buys, for the cap's incumbency margin.
   let incumbents = new Set<string>();
   let done = 0;
   let written = 0;
+  let skipped = 0;
 
   for (const session of order) {
     if (done >= LIMIT) break;
@@ -236,27 +251,35 @@ async function main(): Promise<void> {
       weight: r.weight,
     }));
 
-    // Written directly rather than through upsertTierHistory so the run stays
-    // one module and one connection.
-    for (let i = 0; i < rows.length; i += 500) {
-      const batch = rows.slice(i, i + 500);
-      await sql`
-        INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight, source)
-        SELECT ${session}::date, *, 'replay' FROM UNNEST(
-          ${batch.map((r) => r.ticker)}::text[],
-          ${batch.map((r) => r.rsPct)}::float8[],
-          ${batch.map((r) => r.vsMa)}::float8[],
-          ${batch.map((r) => r.tier)}::text[],
-          ${batch.map((r) => r.momentumTier)}::text[],
-          ${batch.map((r) => r.weight)}::float8[]
-        ) AS t(ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
-        ON CONFLICT (session, ticker) DO UPDATE SET
-          rs_pct = EXCLUDED.rs_pct, vs_ma = EXCLUDED.vs_ma,
-          tier = EXCLUDED.tier, momentum_tier = EXCLUDED.momentum_tier,
-          weight = EXCLUDED.weight
-        WHERE tier_history.source <> 'live'
-      `;
-      written += batch.length;
+    if (!replayMayWrite(session, liveSessions)) {
+      skipped += 1;
+    } else {
+      // Written directly rather than through upsertTierHistory so the run stays
+      // one module and one connection.
+      for (let i = 0; i < rows.length; i += 500) {
+        const batch = rows.slice(i, i + 500);
+        await sql`
+          INSERT INTO tier_history (session, ticker, rs_pct, vs_ma, tier, momentum_tier, weight, source)
+          SELECT ${session}::date, *, 'replay' FROM UNNEST(
+            ${batch.map((r) => r.ticker)}::text[],
+            ${batch.map((r) => r.rsPct)}::float8[],
+            ${batch.map((r) => r.vsMa)}::float8[],
+            ${batch.map((r) => r.tier)}::text[],
+            ${batch.map((r) => r.momentumTier)}::text[],
+            ${batch.map((r) => r.weight)}::float8[]
+          ) AS t(ticker, rs_pct, vs_ma, tier, momentum_tier, weight)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM tier_history live
+            WHERE live.session = ${session}::date AND live.source = 'live'
+          )
+          ON CONFLICT (session, ticker) DO UPDATE SET
+            rs_pct = EXCLUDED.rs_pct, vs_ma = EXCLUDED.vs_ma,
+            tier = EXCLUDED.tier, momentum_tier = EXCLUDED.momentum_tier,
+            weight = EXCLUDED.weight
+          WHERE tier_history.source <> 'live'
+        `;
+        written += batch.length;
+      }
     }
 
     done += 1;
@@ -267,6 +290,7 @@ async function main(): Promise<void> {
 
   console.log(
     `\ndone: ${done} sessions, ${written.toLocaleString()} rows, ` +
+      `${skipped} live sessions skipped, ` +
       `${((Date.now() - started) / 60_000).toFixed(1)} min`,
   );
 }
