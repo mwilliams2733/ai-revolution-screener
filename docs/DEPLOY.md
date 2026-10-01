@@ -155,12 +155,20 @@ check is not running and the app is public.
 
 ## Cron
 
-`vercel.json` schedules `/api/refresh` at 22:00 UTC on weekdays. Vercel Cron
-calls the deployment directly and carries no Access identity, so `proxy.ts`
-exempts that path and the route authenticates with `CRON_SECRET` instead.
+Two weekday schedules, declared in both `vercel.json` and
+`.github/workflows/schedule.yml`:
 
-Note the data is delayed end-of-day: the newest session available is the
-previous trading day, so a 22:00 UTC run picks up that day's close.
+- `/api/refresh` at 12:00 UTC (5:00 AM Phoenix)
+- `/api/digest` at 13:00 UTC (6:00 AM Phoenix)
+
+Schedulers call the deployment directly and carry no Access identity, so
+`proxy.ts` exempts both paths and each route authenticates with `CRON_SECRET`
+instead. The GitHub copy calls the `*.vercel.app` alias, because the custom
+domain sits behind Cloudflare Access.
+
+The data is delayed end-of-day. A session is stored only once it has settled,
+at 18:00 New York time on its date, so the 12:00 UTC run stores the previous
+trading day.
 
 ## Rotating a key
 

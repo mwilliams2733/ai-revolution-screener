@@ -145,38 +145,62 @@ The percentile was never measured. It is deliberately different from a zero,
 which would mean genuinely worst in the market.
 
 **Why is the first load slow?**
-A cold instance rebuilds the screen from scratch, around 10 seconds. It is
-cached for 15 minutes after that.
+A cold instance rebuilds the screen from scratch, around 10 seconds. The
+server keeps the result for 15 minutes, and the page itself is regenerated
+hourly, so what you see can be up to an hour behind the last refresh. The
+bars are end-of-day, so that costs nothing in practice.
 
 **How fresh is the data?**
 The price feed is delayed end-of-day, so the newest data is the previous
 session's close. The **Session** date says which one. If the app is more than
 one session behind, a banner says so.
 
+A session is only stored once it has settled, at 6:00 PM New York time on its
+date. While the market is open, the price feed already returns a partial bar
+for today, and storing that as the day's close is how 17 sessions between
+2026-08-31 and 2026-09-23 ended up holding mid-morning prices. They were
+re-fetched on 2026-09-24. The rule lives in `settleInstant` in
+`lib/session-ledger.ts`, and the refresh re-fetches any session that was
+stored before it settled.
+
 **When do emails arrive?**
 Two different things arrive, and the difference matters.
 
-The **morning digest** lands every weekday at **6:00 AM Phoenix** whether or not
-anything moved: session date and staleness first, then the tier split, what
-changed, what was held down and why, and the ten strongest names. It is
-unconditional on purpose — an alert that goes quiet looks exactly like a
-screener that died three weeks ago, so a digest that always arrives is the only
-thing that can tell you the pipeline is alive.
+The **morning digest** lands every weekday at about **6:00 AM Phoenix**
+whether or not anything moved. It leads with the session date, its staleness
+and the outcome of the last refresh, then the tier split, what changed, what
+was held down and why, the Strong Buy book, and a link to the screener. It is
+unconditional on purpose: an alert that goes quiet looks exactly like a
+screener that died three weeks ago, so a digest that always arrives is the
+only thing that can tell you the pipeline is alive.
 
-The **change alert** is exception-driven and fires from the refresh only when a
-tier actually moved, downgrades first.
+The **change alert** is exception-driven and fires from the refresh only when
+a tier actually moved, downgrades first. It usually arrives a little before
+the digest.
 
 Schedule, all weekdays (Phoenix is UTC-7 year-round, so none of this drifts):
 
 | Phoenix | UTC | What |
 |---|---|---|
-| 5:00 AM | 12:00 | refresh — picks up the previous session, repairs split-stranded bars |
+| 5:00 AM | 12:00 | refresh — stores the previous session once it has settled, repairs split-stranded bars, may send the alert |
 | 6:00 AM | 13:00 | digest email |
-| 3:00 PM | 22:00 | refresh — captures the same day's close, two hours after it |
 
-The afternoon refresh is kept because the market closes at 1:00 PM Phoenix:
-without it, Friday's close would not be stored until Monday morning and the
-weekend would show Thursday.
+There is deliberately no afternoon refresh. With three crons declared, two
+deployments hung (commit `21592e3`), and the plan allows two. The cost is that
+a weekend shows Friday's close only from Monday's 5 AM run onwards.
+
+Both schedules are declared twice, in `vercel.json` and in
+`.github/workflows/schedule.yml`, because a Vercel cron is registered by a
+deployment, not by the project, and a blocked deploy registers nothing. The
+GitHub copy runs anywhere from minutes to hours late. A mail ledger
+(`mail_sends`) claims each email before sending, so the second scheduler never
+sends a duplicate. Normally that means one digest a day; if the digest fires
+before the refresh has landed, the later scheduler sends one corrected digest
+once the new session exists, never more than two.
+
+To see tomorrow's digest without waiting, run `npm run digest:preview`. It
+writes the subject, text and HTML under `tmp/digest/` and sends nothing unless
+you pass `--send --to <address>`.
 
 ---
 
@@ -239,14 +263,23 @@ distinction is load-bearing twice:
   applying today's EDGAR filings to a 2025 session is lookahead — so diffing
   live against replayed reports the difference between two *rulesets* as if the
   market had moved. That is exactly how two junk alerts went out.
-- **The replay will not overwrite a live row.** Live rows are the only
-  genuinely out-of-sample evidence this project will ever have, accumulating one
-  session per weekday. `npm run replay` is therefore safe to re-run as often as
-  you like; it fills gaps and never erodes the record.
+- **The replay will not overwrite a live row**, but it can add to a live
+  session. Its upsert only protects rows that already exist, and the replay's
+  theme set is not always identical to the live one, so a ticker the live
+  snapshot lacks is inserted as a `replay` row into that live session. A
+  session holding both kinds counts as replayed, which suppresses the next
+  alert. `npm run audit` checks that no session mixes the two. Re-running the
+  replay is safe for gaps, but check the audit afterwards.
 
 `npm run backtest` prints the split, and `npm run audit` warns while the live
 count is still too low to conclude anything. About 20 live sessions at a
 21-session horizon is where `UNDERPOWERED` starts to lift.
+
+On 2026-09-24 the 16 live sessions from 2026-08-31 to 2026-09-22 were deleted
+and rebuilt as replay rows, because they had been ranked on mid-morning prices
+(see "How fresh is the data?"). The live record is therefore 2026-08-21 to
+2026-08-28 plus every session from 2026-09-23 onwards. A backup of the table
+from before the rebuild is kept outside the repository.
 
 ## Price and liquidity filters
 
@@ -305,6 +338,8 @@ npm run sectors        # SIC classification from EDGAR, resumable
 npm run splits         # cache Polygon split history
 npm run health         # balance-sheet facts from EDGAR, then a guardrail report
 npm run refetch-splits # repair price history stranded by a split
+npm run digest:preview # render the morning digest locally; sends nothing
+npm run mail-ledger -- list   # show recent email sends (forget <kind> <key> to clear one)
 ```
 
 `npm run audit` is the gate. It asserts the values that caught real bugs:

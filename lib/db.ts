@@ -306,12 +306,14 @@ export async function loadCloseHistory(
 }
 
 /**
- * Close and volume per ticker over the last `window` stored sessions.
+ * Close and volume for EVERY ticker over the last `window` stored sessions.
  *
- * One query, but SCOPED to the tickers that need it. Neon's HTTP driver caps a
- * response at 64MB, and 200 sessions across ~12,000 tickers is 2.4M rows, which
- * returns HTTP 507. Scoping is also correct on its own terms: only the themed
- * rows are ever scored.
+ * Deliberately unscoped: volume metrics grade a name against the full ranked
+ * universe, not the theme (see the applyVolume call in lib/screen-service.ts),
+ * so every ticker's bars are needed. Size is bounded by `window`, not by a
+ * ticker list: about 51 sessions across ~12,000 names is ~600k rows, well under
+ * Neon's 64MB HTTP response cap. Widening `window` toward 200 would cross it
+ * (2.4M rows returned HTTP 507 when that was tried) -- scope by ticker first.
  */
 export async function loadVolumeHistory(
   window: number,
