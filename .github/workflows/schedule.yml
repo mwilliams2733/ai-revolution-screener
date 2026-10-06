@@ -12,7 +12,8 @@
 #
 # Both are declared. Whichever fires, the routes are idempotent: the refresh
 # work list is a set difference over sessions, so a second call the same day
-# finds nothing to fetch, and the digest only reads and mails.
+# finds nothing to fetch, and the digest only reads and mails. This workflow
+# asks /status first and skips when the Vercel cron already did the work.
 #
 # TIMING HERE IS UNRELIABLE, NOT MERELY APPROXIMATE. GitHub schedules queue on
 # shared runners and the lateness is unbounded in practice. Measured on this
@@ -65,7 +66,30 @@ jobs:
             echo "path=/api/digest" >> "$GITHUB_OUTPUT"
           fi
 
+      # Usually the Vercel cron has already done today's work by the time this
+      # backup gets a runner, so ask first and skip if so. Only an explicit
+      # "done":true skips: a 404 (deployment older than the probe), a 500, a
+      # timeout or anything unexpected falls through to the real call, which
+      # is idempotent. A manual dispatch always runs -- asking for it is the
+      # point of dispatching it.
+      - name: Check whether it is already done
+        id: check
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          path="${{ steps.pick.outputs.path }}"
+          code=$(curl -sS -o status.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" "${BASE}${path}/status" || echo "000")
+          echo "GET ${BASE}${path}/status -> HTTP $code"
+          cat status.json 2>/dev/null; echo
+          if [ "$code" = "200" ] && grep -q '"done":true' status.json; then
+            echo "::notice::Skipped ${path}: already done today"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Call it
+        if: steps.check.outputs.skip != 'true'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |

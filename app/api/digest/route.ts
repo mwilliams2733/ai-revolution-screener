@@ -18,6 +18,7 @@ import { composeDigest } from "@/lib/digest-service";
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { digestKey } from "@/lib/mail-ledger";
 import { phoenixToday } from "@/lib/dates";
+import { cronAuthorised, cronUnauthorisedBody } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -40,33 +41,9 @@ export const dynamic = "force-dynamic";
  */
 export const maxDuration = 300;
 
-/** Constant-time-ish compare, to avoid leaking the secret through timing. */
-function secretMatches(given: string, expected: string): boolean {
-  if (given.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < given.length; i++) diff |= given.charCodeAt(i) ^ expected.charCodeAt(i);
-  return diff === 0;
-}
-
-function authorised(req: Request): boolean {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false; // an unset secret is a locked door, not an open one
-  const header = req.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  return Boolean(token) && secretMatches(token, expected);
-}
-
 async function handle(req: Request) {
-  if (!authorised(req)) {
-    return NextResponse.json(
-      {
-        error: "Not authorised",
-        detail: process.env.CRON_SECRET
-          ? "Send Authorization: Bearer <CRON_SECRET>."
-          : "CRON_SECRET is not set on this deployment.",
-      },
-      { status: 401 },
-    );
+  if (!cronAuthorised(req)) {
+    return NextResponse.json(cronUnauthorisedBody(), { status: 401 });
   }
 
   const { digest, screen } = await composeDigest();

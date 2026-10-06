@@ -844,3 +844,28 @@ export async function releaseMailSend(kind: string, dedupeKey: string): Promise<
   const sql = client();
   await sql`DELETE FROM mail_sends WHERE kind = ${kind} AND dedupe_key = ${dedupeKey}`;
 }
+
+/**
+ * Has this key been claimed? Read-only, for the schedulers' status probe.
+ *
+ * False when there is no database. A query error is thrown, not read as
+ * either answer: the probe then fails, and the workflow treats a failed probe
+ * as "not done" and calls the route, which decides for itself.
+ */
+export async function mailSent(kind: string, dedupeKey: string): Promise<boolean> {
+  if (!process.env.DATABASE_URL) return false;
+  const sql = client();
+  const rows = (await sql`
+    SELECT 1 FROM mail_sends WHERE kind = ${kind} AND dedupe_key = ${dedupeKey} LIMIT 1
+  `) as unknown[];
+  return rows.length > 0;
+}
+
+/** Does tier_history hold a live snapshot for this session? */
+export async function hasLiveSnapshot(session: string): Promise<boolean> {
+  const sql = client();
+  const rows = (await sql`
+    SELECT 1 FROM tier_history WHERE session = ${session}::date AND source = 'live' LIMIT 1
+  `) as unknown[];
+  return rows.length > 0;
+}

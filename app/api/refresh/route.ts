@@ -12,30 +12,27 @@
  */
 
 import { NextResponse } from "next/server";
-import { groupedDaily, tickerBars, tradingCalendar } from "@/lib/polygon";
+import { groupedDaily, tickerBars } from "@/lib/polygon";
 import {
   finishRun,
   insertBars,
   previousTiers,
   recordSession,
-  sessionFetchTimes,
   startRun,
   upsertTierHistory,
-  handledSplits,
   markSplitsHandled,
   replaceTickerBars,
-  splitHistory,
   storedCalendarBounds,
-  tickersWithBars,
   claimMailSend,
   releaseMailSend,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
 import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
 import { readMailConfig, sendMail } from "@/lib/mailer";
-import { classifySession, sessionsNeedingFetch } from "@/lib/session-ledger";
-import { isoDaysAgo } from "@/lib/dates";
-import { pendingRefetches, refetchTargets } from "@/lib/splits";
+import { classifySession } from "@/lib/session-ledger";
+import { refetchTargets } from "@/lib/splits";
+import { sessionBacklog, splitBacklog } from "@/lib/refresh-backlog";
+import { cronAuthorised, cronUnauthorisedBody } from "@/lib/cron-auth";
 import { alertKey } from "@/lib/mail-ledger";
 
 export const dynamic = "force-dynamic";
@@ -60,44 +57,9 @@ const MAX_SESSIONS_PER_RUN = 3;
  */
 const MAX_REFETCH_PER_RUN = 25;
 
-/**
- * How far back to look for gaps. (Finding M4)
- *
- * Must be comfortably wider than MAX_SESSIONS_PER_RUN or a backlog can never
- * drain: with a 10-session window and 3 fetched per night, an outage longer
- * than about two weeks left the oldest gaps permanently outside the window,
- * and `remaining` reported a number that never fell.
- */
-const CATCHUP_WINDOW = 60;
-
-
-/** Constant-time-ish compare, to avoid leaking the secret through timing. */
-function secretMatches(given: string, expected: string): boolean {
-  if (given.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < given.length; i++) diff |= given.charCodeAt(i) ^ expected.charCodeAt(i);
-  return diff === 0;
-}
-
-function authorised(req: Request): boolean {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false; // unset secret is a locked door, not an open one
-  const header = req.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  return Boolean(token) && secretMatches(token, expected);
-}
-
 async function handle(req: Request) {
-  if (!authorised(req)) {
-    return NextResponse.json(
-      {
-        error: "Not authorised",
-        detail: process.env.CRON_SECRET
-          ? "Send Authorization: Bearer <CRON_SECRET>."
-          : "CRON_SECRET is not set on this deployment.",
-      },
-      { status: 401 },
-    );
+  if (!cronAuthorised(req)) {
+    return NextResponse.json(cronUnauthorisedBody(), { status: 401 });
   }
 
   if (!process.env.DATABASE_URL) {
@@ -115,16 +77,13 @@ async function handle(req: Request) {
   const repairedTickers: string[] = [];
 
   try {
-    // Real session dates, newest first, over a window wide enough that a
-    // backlog drains instead of falling off the end.
-    const calendar = await tradingCalendar(isoDaysAgo(CATCHUP_WINDOW * 2), isoDaysAgo(0));
-    const recent = calendar.slice(0, CATCHUP_WINDOW);
     // Missing sessions AND sessions stored before they settled. The second
     // set is how mid-morning snapshots stored before this fix get repaired:
     // insertBars and recordSession are upserts, so a re-fetch overwrites the
     // partial bars and stamps a new fetched_at. Newest first, so the sessions
     // the screen reads most are repaired first.
-    const needing = sessionsNeedingFetch(recent, await sessionFetchTimes(recent));
+    // Same work list /api/refresh/status reports on; see lib/refresh-backlog.ts.
+    const needing = await sessionBacklog();
     const todo = needing.slice(0, MAX_SESSIONS_PER_RUN);
     // Bounds for any split repair below: a repair must never widen the stored
     // calendar, or one ticker gets sessions no other name has and every
@@ -160,12 +119,7 @@ async function handle(req: Request) {
     // Bounded per run so a backlog drains over several nights rather than
     // timing out the function. Progress is a per-split ledger, so an
     // interrupted run resumes exactly where it stopped.
-    const [allSplits, handled, held] = await Promise.all([
-      splitHistory(),
-      handledSplits(),
-      tickersWithBars(),
-    ]);
-    const pending = pendingRefetches([...allSplits.values()].flat(), handled, held);
+    const pending = await splitBacklog();
     const targets = refetchTargets(pending).slice(0, MAX_REFETCH_PER_RUN);
     for (const t of targets) {
       try {
