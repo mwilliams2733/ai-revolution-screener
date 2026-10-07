@@ -48,6 +48,8 @@ A tier can be **held down** for four reasons, each shown under the row:
   to take it; inside that margin the incumbent keeps the slot and both rows say
   so. Without the margin the names at ranks 10 and 11 swapped almost daily,
   which was the single largest source of tier churn in the whole ruleset.
+  The top-10 limit applies to the AI book only. In the whole-market view below
+  it, every name that clears every rule is a Strong Buy.
 
 They run in that order, which matters: a topping name and a name failing a
 balance-sheet guardrail are both capped **before** the top-10 cut, so neither
@@ -126,14 +128,48 @@ the reason attached — currently the memory and storage cohort. **They are neve
 silently dropped.** SNDK is the strongest name in the market and is absent on
 purpose; six months from now the reason will still be on screen.
 
+### Whole market by group
+
+Below the AI book, every liquid US name (~2,300) runs the **same** ruleset —
+true moving average, hysteresis band, stage rule, fundamental gate and
+balance-sheet guardrails — and is shown ranked inside a group. RS is the same
+market-wide percentile everywhere; grouping never re-ranks.
+
+Groups, in precedence order:
+
+1. **AI spenders** — the net AI CapEx spenders the book excludes (MSFT, GOOGL,
+   META, AMZN, AAPL, ORCL, IBM, TSLA), ranked so you can see where they stand,
+   badged *net AI CapEx spender*.
+2. **AI themes** — the twelve themes in `lib/theme.ts`. A name listed in two
+   themes sits in the first one declared. The memory and storage names stay in
+   their theme with a *crowding veto* badge.
+3. **Industry sector** — the SIC sector from SEC EDGAR, or **Unclassified**
+   when the filer has no SIC code.
+
+The groups strip orders them by median RS and counts Strong Buy / Buy / Hold in
+each. There is **no Strong Buy limit** here. Two row notes are specific to
+this view:
+
+- *"Buy in the AI book — outside its top 10"* — a book name that clears every
+  rule but lost the top-10 cut. It is a Strong Buy here and a Buy above.
+- *"Fundamentals unverified"* — a Strong Buy the fundamental gate could not
+  judge: no usable quarterly SEC data (often a foreign issuer), too little
+  history, or not fetched yet. It keeps its momentum tier rather than being
+  punished for a gap in the data.
+
+Filters (AI themes / sectors, tier, ticker or name search) and collapsed or
+expanded groups are remembered per browser.
+
 ---
 
 ## FAQ
 
 **Why is a name missing?**
-Use the **Check any ticker** box. It applies the full ruleset to any symbol and
-tells you *why* it is absent: below $5, under $10M daily dollar volume, less
-than 12 months of history, a net AI CapEx spender, or under the crowding veto.
+From the AI book: it is probably still in **Whole market by group** below it.
+Only the book applies the theme map, the spender exclusion and the crowding
+veto. From the whole market: use the **Check any ticker** box. It applies the
+full ruleset to any symbol and tells you *why* it is absent — below the price
+or liquidity floor, or less than 12 months of history.
 
 **Why does the tier not match the newsletter?**
 It reproduces 10 of 15 published tiers exactly and all 15 within one tier. The
@@ -291,7 +327,7 @@ Six layers decide what gets ranked at all:
 | **Price** | **≥ $1** | Not $5. That was the Reg T marginability convention and said nothing about a company. $1 is the exchange delisting-deficiency line, so "above $1" means "in compliance with its listing standards". |
 | **Liquidity** | **median $10M/day over 50 sessions** | Not today's dollar volume. A single-day gate is exactly what a pump passes, since the whole garbage category is defined by *episodic* volume. Names with no stored history fall back to today's figure — a recent listing is unmeasured, not illiquid. |
 | **History** | 12 months | The relative-strength blend needs 3-, 6- and 12-month anchors, so recent IPOs are invisible until they have a year. |
-| **Theme map** | `lib/theme.ts` | Only for the theme table. The leaders view ignores it. |
+| **Theme map** | `lib/theme.ts` | Only for the AI book. The whole-market view uses it to name groups, never to exclude. |
 | **Crowding veto** | memory/storage | Shown greyed with the reason, never silently dropped. |
 
 Dropping the price floor from $5 to $1 admitted 46 names and grew the ranked
@@ -337,10 +373,22 @@ npm run backtest       # forward return by tier, with honest sample sizes
 npm run sectors        # SIC classification from EDGAR, resumable
 npm run splits         # cache Polygon split history
 npm run health         # balance-sheet facts from EDGAR, then a guardrail report
+npm run fundamentals   # fundamentals for every Strong Buy candidate, resumable
+npm run book:snapshot  # print the AI book's tiers as JSON, to diff a ruleset change
 npm run refetch-splits # repair price history stranded by a split
 npm run digest:preview # render the morning digest locally; sends nothing
 npm run mail-ledger -- list   # show recent email sends (forget <kind> <key> to clear one)
 ```
+
+**Fundamentals store.** The fundamental gate reads `company_fundamentals`, not
+live EDGAR: ~300 market-wide Strong Buy candidates cannot be fetched inside a
+page request. A row older than 7 days is re-fetched; a missing one reads as
+unverified, which never demotes. `npm run fundamentals` fills the table (315
+names in 54s, 172 ms each). The nightly refresh tops it up within a 60s
+budget, chosen from 72 measured nightly runs (p95 82s, max 102s) against the
+300s limit. Whatever does not fit is picked up the next night — the work list
+is a set difference, not a cursor. Run `npm run fundamentals` **before**
+deploying a ruleset change, or the AI book's Strong Buys read as unverified.
 
 `npm run audit` is the gate. It asserts the values that caught real bugs:
 universe size, LITE at the 99th percentile, tie-averaged ranks, and that
