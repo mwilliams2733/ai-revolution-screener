@@ -12,7 +12,10 @@ import { getScreen } from "@/lib/screen-service";
 // Bars are delayed end-of-day data, so a short server cache costs nothing in
 // freshness and spares the API a full re-fetch on every page load.
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// A cold compute measured 59.2s and 59.7s locally for the market-wide
+// pipeline (80.7s before it, with live EDGAR), so 60 left no margin. The
+// refresh and digest routes already run at 300.
+export const maxDuration = 300;
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
