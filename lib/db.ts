@@ -11,7 +11,6 @@ import { classify, type SectorLabels } from "./sic";
 import type { HealthFacts } from "./health-overlay";
 import type { Fundamentals } from "./edgar";
 import type { StoredFundamentals } from "./fundamentals-store";
-import { mergePriorTiers } from "./hysteresis";
 import type { FactPoint } from "./solvency";
 import { byTicker, type Split } from "./splits";
 import type { Bar, BarsByTicker } from "./types";
@@ -845,18 +844,31 @@ export async function previousMomentumTiers(session: string): Promise<Map<string
     SELECT ticker, COALESCE(momentum_tier, tier) AS tier
     FROM tier_history WHERE session = ${prev[0].session}::date
   `) as { ticker: string; tier: string | null }[];
-  const book = new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
+  return new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
+}
 
-  // Non-book names live in their own table so tier_history's readers never
-  // see them. Same prior session, so both halves describe the same day.
+/**
+ * Band tiers for the names OUTSIDE the book, from the same prior session
+ * previousMomentumTiers reads.
+ *
+ * Separate from previousMomentumTiers on purpose: the caller catches each one
+ * on its own, so a failure here costs non-book names one night of band memory
+ * and can never empty the book's.
+ */
+export async function previousMarketBandTiers(session: string): Promise<Map<string, string>> {
+  const sql = client();
+  const prev = (await sql`
+    SELECT session::text AS session FROM tier_history
+    WHERE session < ${session}::date
+    ORDER BY session DESC LIMIT 1
+  `) as { session: string }[];
+  if (prev.length === 0) return new Map();
+
   await ensureMarketBandTiers();
-  const marketRows = (await sql`
+  const rows = (await sql`
     SELECT ticker, band_tier FROM market_band_tiers WHERE session = ${prev[0].session}::date
   `) as { ticker: string; band_tier: string | null }[];
-  const market = new Map(
-    marketRows.filter((r) => r.band_tier).map((r) => [r.ticker, r.band_tier as string]),
-  );
-  return mergePriorTiers(book, market);
+  return new Map(rows.filter((r) => r.band_tier).map((r) => [r.ticker, r.band_tier as string]));
 }
 
 // ---------------------------------------------------------------------------

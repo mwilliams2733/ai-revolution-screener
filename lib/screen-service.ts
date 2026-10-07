@@ -18,6 +18,7 @@ import {
 import { barsByTicker } from "./factors";
 import {
   previousMomentumTiers,
+  previousMarketBandTiers,
   previousTiers,
   loadTierHistory,
   loadTrendHistory,
@@ -42,7 +43,7 @@ import { VOLUME_WINDOW, type VolumeBar } from "./volume";
 import { applyVolume, volumeMeasuredCount, type VolumeFields } from "./volume-overlay";
 import { TREND_MIN_HISTORY, applyTrend, trendScoredCount, type TrendFields } from "./trend-overlay";
 import { applyStageRule, stageDemotedCount, type StageFields } from "./stage-overlay";
-import { applyHysteresis, heldCount, type HysteresisFields } from "./hysteresis";
+import { applyHysteresis, heldCount, mergePriorTiers, type HysteresisFields } from "./hysteresis";
 import {
   HISTORY_WINDOW,
   summariseTierHistory,
@@ -568,12 +569,22 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   // Hysteresis sits between the momentum tier and the demoting overlays: it
   // adjusts the tier a name is entitled to, and the overlays then cap it.
-  const priorTiers = dbConfigured()
+  //
+  // Two stores, caught separately: a failure reading the market's band memory
+  // must cost non-book names one night of stickiness, never empty the book's.
+  const bookPrior = dbConfigured()
     ? await previousMomentumTiers(dates.now as string).catch((e: unknown) => {
         warnings.push(`prior tiers: ${e instanceof Error ? e.message : String(e)}`);
         return new Map<string, string>();
       })
     : new Map<string, string>();
+  const marketPrior = dbConfigured()
+    ? await previousMarketBandTiers(dates.now as string).catch((e: unknown) => {
+        warnings.push(`prior market band tiers: ${e instanceof Error ? e.message : String(e)}`);
+        return new Map<string, string>();
+      })
+    : new Map<string, string>();
+  const priorTiers = mergePriorTiers(bookPrior, marketPrior);
 
   // Incumbents for the cap are last session's FINAL Strong Buys -- who actually
   // held a slot -- which is a different question from the momentum tier the
@@ -593,24 +604,35 @@ async function computeScreen(): Promise<ScreenPayload> {
   // Every ranked name runs the full ruleset; the AI book is a filter of the
   // same rows (lib/market-rows.ts). True moving averages FIRST: they change
   // vsMa, which re-decides the tier, which decides who the gate considers.
-  const rankedTickers = ranked.map((r) => r.ticker);
-  const history = await loadHistory(rankedTickers, warnings);
+  //
+  // The book's tickers load in their own queries. The market-wide loads are
+  // ~20x larger (trend history ~25 MB against Neon's 64 MB response cap), and
+  // a failure there must not strip the book of its moving averages and stage.
+  // The book is theme members minus spenders and the crowding veto, restricted
+  // to the liquid universe exactly as runScreen restricted `themed`.
+  const bookTheme = themeUniverse({ restrictTo: new Set(liquid.keys()) });
+  const bookTickers = ranked.filter((r) => bookTheme.has(r.ticker)).map((r) => r.ticker);
+  const marketTickers = ranked.filter((r) => !bookTheme.has(r.ticker)).map((r) => r.ticker);
+  const history = new Map([
+    ...(await loadHistory(bookTickers, warnings)),
+    ...(await loadHistory(marketTickers, warnings)),
+  ]);
   const withMa = applyTrueMa(ranked, history);
   const trended = applyHysteresis(withMa, priorTiers as ReadonlyMap<string, Tier>);
 
   // Stage needs the trend history, and the stage rule must run before the
   // fundamental gate and the cap: a topping name should not consume one of the
   // ten Strong Buy slots on its way down.
-  const trendBars = await loadTrendBars(rankedTickers, warnings);
+  const trendBars = new Map([
+    ...(await loadTrendBars(bookTickers, warnings)),
+    ...(await loadTrendBars(marketTickers, warnings)),
+  ]);
   const staged = applyTrend(trended, trendBars);
   const stageRuled = applyStageRule(staged);
 
   // Fundamental overlay from the nightly store. Candidates are the names the
   // gate can act on: Strong Buys after the stage rule.
   const candidates = stageRuled.filter((r) => r.tier === "Strong Buy").map((r) => r.ticker);
-  // The AI book: theme members minus spenders and the crowding veto, restricted
-  // to the liquid universe exactly as runScreen restricted `themed`.
-  const bookTheme = themeUniverse({ restrictTo: new Set(liquid.keys()) });
   let stored = await storedFundamentals(warnings);
 
   // The book never waits a night for a new Strong Buy's facts: its own
