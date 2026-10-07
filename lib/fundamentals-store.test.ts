@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+import { usableFundamentals, wantedFundamentals, type StoredFundamentals } from "./fundamentals-store";
+import type { Fundamentals } from "./edgar";
+
+const NOW = new Date("2026-10-07T12:00:00Z");
+const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
+
+describe("wantedFundamentals", () => {
+  it("wants missing names, in candidate order, before stale ones", () => {
+    const stored = new Map([["OLD", daysAgo(30)]]);
+    expect(wantedFundamentals(["OLD", "B", "A"], stored, NOW)).toEqual(["B", "A", "OLD"]);
+  });
+
+  it("skips names fetched within the window", () => {
+    const stored = new Map([["FRESH", daysAgo(2)]]);
+    expect(wantedFundamentals(["FRESH"], stored, NOW)).toEqual([]);
+  });
+
+  it("orders stale names oldest first", () => {
+    const stored = new Map([
+      ["X", daysAgo(8)],
+      ["Y", daysAgo(40)],
+    ]);
+    expect(wantedFundamentals(["X", "Y"], stored, NOW)).toEqual(["Y", "X"]);
+  });
+
+  it("finds a gap in the middle, not just the tail", () => {
+    // Resume by set difference: an interrupted backfill must not be read as
+    // "done up to C".
+    const stored = new Map([
+      ["A", daysAgo(1)],
+      ["C", daysAgo(1)],
+    ]);
+    expect(wantedFundamentals(["A", "B", "C"], stored, NOW)).toEqual(["B"]);
+  });
+
+  it("treats an unparseable timestamp as stale and ignores duplicate candidates", () => {
+    const stored = new Map([["BAD", "not a date"]]);
+    expect(wantedFundamentals(["BAD", "BAD"], stored, NOW)).toEqual(["BAD"]);
+  });
+});
+
+describe("usableFundamentals", () => {
+  it("drops rows stored as 'no SEC filings', so the gate reads them as unverified", () => {
+    const f = { cik: "1", revAccel: 1, opMarginDelta: 1 } as unknown as Fundamentals;
+    const stored = new Map<string, StoredFundamentals>([
+      ["HAS", { facts: f, fetchedAt: daysAgo(1) }],
+      ["NONE", { facts: null, fetchedAt: daysAgo(1) }],
+    ]);
+    const out = usableFundamentals(stored);
+    expect([...out.keys()]).toEqual(["HAS"]);
+  });
+});

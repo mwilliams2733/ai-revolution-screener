@@ -9,6 +9,8 @@
 import { neon } from "@neondatabase/serverless";
 import { classify, type SectorLabels } from "./sic";
 import type { HealthFacts } from "./health-overlay";
+import type { Fundamentals } from "./edgar";
+import type { StoredFundamentals } from "./fundamentals-store";
 import type { FactPoint } from "./solvency";
 import { byTicker, type Split } from "./splits";
 import type { Bar, BarsByTicker } from "./types";
@@ -728,6 +730,65 @@ export interface TierSnapshot {
    */
   readonly source: TierSource;
   readonly tiers: Map<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Stored fundamentals
+// ---------------------------------------------------------------------------
+
+/** Created by its consumer, like company_health and mail_sends. */
+async function ensureFundamentalsTable(): Promise<void> {
+  const sql = client();
+  await sql`
+    CREATE TABLE IF NOT EXISTS company_fundamentals (
+      ticker     TEXT PRIMARY KEY,
+      facts      JSONB,
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+}
+
+/** Every stored row. A few thousand small JSON objects, well under the response cap. */
+export async function loadStoredFundamentals(): Promise<Map<string, StoredFundamentals>> {
+  await ensureFundamentalsTable();
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, facts, fetched_at::text AS fetched_at FROM company_fundamentals
+  `) as { ticker: string; facts: Fundamentals | null; fetched_at: string }[];
+  return new Map(rows.map((r) => [r.ticker, { facts: r.facts, fetchedAt: r.fetched_at }]));
+}
+
+/** Store fetched facts. Null facts record "no usable SEC data" so it is not re-fetched nightly. */
+export async function upsertFundamentals(
+  rows: readonly { ticker: string; facts: Fundamentals | null }[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  await ensureFundamentalsTable();
+  const sql = client();
+  let n = 0;
+  for (const batch of chunk(rows, CHUNK)) {
+    await sql`
+      INSERT INTO company_fundamentals (ticker, facts, fetched_at)
+      SELECT t.ticker, t.facts, now() FROM UNNEST(
+        ${batch.map((r) => r.ticker)}::text[],
+        ${batch.map((r) => (r.facts == null ? null : JSON.stringify(r.facts)))}::jsonb[]
+      ) AS t(ticker, facts)
+      ON CONFLICT (ticker) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = now()
+    `;
+    n += batch.length;
+  }
+  return n;
+}
+
+/** ticker -> CIK for the given tickers, from the reference table. */
+export async function ciksFor(tickers: readonly string[]): Promise<Map<string, string>> {
+  if (tickers.length === 0) return new Map();
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, cik FROM tickers
+    WHERE ticker = ANY(${[...tickers]}::text[]) AND cik IS NOT NULL
+  `) as { ticker: string; cik: string }[];
+  return new Map(rows.map((r) => [r.ticker, String(r.cik).trim()]));
 }
 
 /**

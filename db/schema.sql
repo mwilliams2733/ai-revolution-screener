@@ -214,3 +214,13 @@ CREATE TABLE IF NOT EXISTS mail_sends (
   sent_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (kind, dedupe_key)
 );
+
+-- EDGAR fundamentals for the fundamental gate, one row per ticker.
+-- facts is lib/edgar.ts Fundamentals as JSON, or NULL for "fetched, no usable
+-- SEC data" so foreign issuers are not re-fetched nightly. Rows older than
+-- 7 days are re-fetched (lib/fundamentals-store.ts). Created by its consumer.
+CREATE TABLE IF NOT EXISTS company_fundamentals (
+  ticker     TEXT PRIMARY KEY,
+  facts      JSONB,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
