@@ -48,11 +48,23 @@ export function wantedFundamentals(
   return [...missing, ...stale.map((s) => s.t)];
 }
 
-/** The facts the gate can judge. Null rows are left out so they read as unverified. */
+/**
+ * The facts the gate may judge: the Strong Buy candidates' only.
+ *
+ * The store holds facts for every name that was EVER a candidate. Handing the
+ * gate facts for a name that has since slipped below Strong Buy marks it
+ * "demote", and the book then tells you it was "held at Buy" when it never was
+ * a Strong Buy. Scoping to candidates keeps the semantics the live fetch had.
+ * Null rows are left out so they read as unverified.
+ */
 export function usableFundamentals(
   stored: ReadonlyMap<string, StoredFundamentals>,
+  candidates: Iterable<string>,
 ): Map<string, Fundamentals> {
   const out = new Map<string, Fundamentals>();
-  for (const [t, s] of stored) if (s.facts) out.set(t, s.facts);
+  for (const t of candidates) {
+    const facts = stored.get(t)?.facts;
+    if (facts) out.set(t, facts);
+  }
   return out;
 }

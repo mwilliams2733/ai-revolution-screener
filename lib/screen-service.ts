@@ -590,8 +590,8 @@ async function computeScreen(): Promise<ScreenPayload> {
   // Fundamental overlay from the nightly store. Candidates are the names the
   // gate can act on: Strong Buys after the stage rule.
   const stored = await storedFundamentals(warnings);
-  const fundamentals = usableFundamentals(stored);
   const candidates = stageRuled.filter((r) => r.tier === "Strong Buy").map((r) => r.ticker);
+  const fundamentals = usableFundamentals(stored, candidates);
   const fundamentalsWanted = wantedFundamentals(
     candidates,
     new Map([...stored].map(([t, s]) => [t, s.fetchedAt])),

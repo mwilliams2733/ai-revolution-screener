@@ -47,7 +47,21 @@ describe("usableFundamentals", () => {
       ["HAS", { facts: f, fetchedAt: daysAgo(1) }],
       ["NONE", { facts: null, fetchedAt: daysAgo(1) }],
     ]);
-    const out = usableFundamentals(stored);
+    const out = usableFundamentals(stored, ["HAS", "NONE"]);
     expect([...out.keys()]).toEqual(["HAS"]);
+  });
+});
+
+describe("usableFundamentals, scoped to candidates", () => {
+  it("passes the gate facts for the Strong Buy candidates only", () => {
+    // A stored name that has slipped below Strong Buy must read unverified,
+    // exactly as it did when only candidates were fetched. Handing the gate its
+    // facts marks it "demote", and the book then claims it was held at Buy.
+    const f = { cik: "1", revAccel: -5, opMarginDelta: -1 } as unknown as Fundamentals;
+    const stored = new Map<string, StoredFundamentals>([
+      ["CAND", { facts: f, fetchedAt: daysAgo(1) }],
+      ["SLIPPED", { facts: f, fetchedAt: daysAgo(1) }],
+    ]);
+    expect([...usableFundamentals(stored, ["CAND"]).keys()]).toEqual(["CAND"]);
   });
 });
