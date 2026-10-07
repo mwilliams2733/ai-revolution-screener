@@ -68,3 +68,26 @@ export function usableFundamentals(
   }
   return out;
 }
+
+/**
+ * Book candidates the screen must fetch for itself, this request.
+ *
+ * The nightly top-up only feeds the NEXT screen. Under the old live fetch the
+ * AI book never waited a night for a new Strong Buy's facts; waiting would let
+ * it take a cap slot unverified, enter the portfolio and fire an alert, then be
+ * demoted and alert again the next night. So the book's own candidates that
+ * are missing or stale are fetched in the request -- normally none, at most a
+ * few dozen. Market-only names wait for the nightly top-up.
+ */
+export function bookFetchList(
+  candidates: readonly string[],
+  book: { has(ticker: string): boolean },
+  fetchedAt: ReadonlyMap<string, string>,
+  now: Date,
+): string[] {
+  return wantedFundamentals(
+    candidates.filter((t) => book.has(t)),
+    fetchedAt,
+    now,
+  );
+}

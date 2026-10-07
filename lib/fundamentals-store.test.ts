@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { usableFundamentals, wantedFundamentals, type StoredFundamentals } from "./fundamentals-store";
+import { bookFetchList, usableFundamentals, wantedFundamentals, type StoredFundamentals } from "./fundamentals-store";
 import type { Fundamentals } from "./edgar";
 
 const NOW = new Date("2026-10-07T12:00:00Z");
@@ -63,5 +63,20 @@ describe("usableFundamentals, scoped to candidates", () => {
       ["SLIPPED", { facts: f, fetchedAt: daysAgo(1) }],
     ]);
     expect([...usableFundamentals(stored, ["CAND"]).keys()]).toEqual(["CAND"]);
+  });
+});
+
+describe("bookFetchList", () => {
+  it("lists the book's candidates that are missing or stale, and nothing else", () => {
+    const book = new Set(["MISSING", "STALE", "FRESH"]);
+    const stored = new Map([
+      ["STALE", daysAgo(30)],
+      ["FRESH", daysAgo(1)],
+      ["MARKET", daysAgo(30)],
+    ]);
+    expect(bookFetchList(["MISSING", "STALE", "FRESH", "MARKET", "NEWMKT"], book, stored, NOW)).toEqual([
+      "MISSING",
+      "STALE",
+    ]);
   });
 });

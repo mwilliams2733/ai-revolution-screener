@@ -51,7 +51,13 @@ import {
 import type { TrendBar } from "./trend-template";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { buildPortfolio } from "./tiers";
-import { usableFundamentals, wantedFundamentals, type StoredFundamentals } from "./fundamentals-store";
+import {
+  bookFetchList,
+  usableFundamentals,
+  wantedFundamentals,
+  type StoredFundamentals,
+} from "./fundamentals-store";
+import { defaultTopUpDeps, topUpFundamentals } from "./fundamentals-topup";
 import { splitBook, toMarketRow, type MarketRow } from "./market-rows";
 import { applyFundamentalOverlay, demotedCount } from "./fundamental-gate";
 import { capHeldCount, capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
@@ -334,6 +340,18 @@ async function loadOne(
  * the table. A failure here is a warning; the gate then reads every candidate
  * as unverified, which demotes nothing.
  */
+/** ticker -> fetched_at, the shape wantedFundamentals reads. */
+function fetchedAtOf(stored: ReadonlyMap<string, StoredFundamentals>): Map<string, string> {
+  return new Map([...stored].map(([t, s]) => [t, s.fetchedAt]));
+}
+
+/**
+ * Ceiling on the in-request fetch for the book's own candidates. Measured EDGAR
+ * throughput is 172-240 ms per name, so this covers ~80+ names -- more than the
+ * book's ~56 momentum Strong Buys even with an empty store.
+ */
+const BOOK_FETCH_BUDGET_MS = 20_000;
+
 async function storedFundamentals(warnings: string[]): Promise<Map<string, StoredFundamentals>> {
   if (!dbConfigured()) return new Map();
   try {
@@ -589,12 +607,35 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   // Fundamental overlay from the nightly store. Candidates are the names the
   // gate can act on: Strong Buys after the stage rule.
-  const stored = await storedFundamentals(warnings);
   const candidates = stageRuled.filter((r) => r.tier === "Strong Buy").map((r) => r.ticker);
+  // The AI book: theme members minus spenders and the crowding veto, restricted
+  // to the liquid universe exactly as runScreen restricted `themed`.
+  const bookTheme = themeUniverse({ restrictTo: new Set(liquid.keys()) });
+  let stored = await storedFundamentals(warnings);
+
+  // The book never waits a night for a new Strong Buy's facts: its own
+  // candidates that are missing or stale are fetched now, as the live fetch
+  // used to. Normally none; a failure leaves the name unverified, as before.
+  const bookFetch = dbConfigured()
+    ? bookFetchList(candidates, bookTheme, fetchedAtOf(stored), new Date())
+    : [];
+  if (bookFetch.length > 0) {
+    try {
+      const r = await topUpFundamentals(bookFetch, BOOK_FETCH_BUDGET_MS, defaultTopUpDeps());
+      if (r.failed.length > 0 || r.remaining > 0) {
+        warnings.push(
+          `fundamentals: ${r.failed.length} book candidates failed and ${r.remaining} ran out of time; they read as unverified`,
+        );
+      }
+      if (r.fetched > 0) stored = await storedFundamentals(warnings);
+    } catch (e) {
+      warnings.push(`fundamentals (book fetch): ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   const fundamentals = usableFundamentals(stored, candidates);
   const fundamentalsWanted = wantedFundamentals(
     candidates,
-    new Map([...stored].map(([t, s]) => [t, s.fetchedAt])),
+    fetchedAtOf(stored),
     new Date(),
   );
   const overlaid = applyFundamentalOverlay(stageRuled, fundamentals);
@@ -616,10 +657,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     : [new Map<string, HealthFacts>(), new Map<string, Split[]>()];
   const guarded = applyHealth(overlaid, healthFacts, splits);
 
-  // The AI book: theme members minus spenders and the crowding veto, restricted
-  // to the liquid universe exactly as runScreen restricted `themed`. Only the
-  // book is capped.
-  const bookTheme = themeUniverse({ restrictTo: new Set(liquid.keys()) });
+  // Only the book is capped.
   const inBook = <T extends ScreenRow>(rows: readonly T[]) => splitBook(rows, bookTheme);
   const limited = capStrongBuy(inBook(guarded), STRONG_BUY_LIMIT, undefined, incumbents);
   const bookCapped = new Set(limited.filter((r) => r.capped).map((r) => r.ticker));
