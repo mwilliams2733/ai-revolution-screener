@@ -224,3 +224,14 @@ CREATE TABLE IF NOT EXISTS company_fundamentals (
   facts      JSONB,
   fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Yesterday's hysteresis band tier for every ranked name OUTSIDE the AI book.
+-- Kept apart from tier_history on purpose: tier_history feeds alerts, the
+-- replay guard, turnover stats, the cohort view and the backtest, and none of
+-- them should see market-wide rows. Pruned to the last 10 sessions.
+CREATE TABLE IF NOT EXISTS market_band_tiers (
+  session   DATE NOT NULL,
+  ticker    TEXT NOT NULL,
+  band_tier TEXT,
+  PRIMARY KEY (session, ticker)
+);

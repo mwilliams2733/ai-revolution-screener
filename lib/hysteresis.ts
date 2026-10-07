@@ -110,3 +110,19 @@ export function applyHysteresis<T extends ScreenRow>(
 export function heldCount(rows: readonly HysteresisFields[]): number {
   return rows.filter((r) => r.held).length;
 }
+
+/**
+ * Yesterday's band tiers from both stores.
+ *
+ * tier_history holds the AI book; market_band_tiers holds everyone else. A
+ * name can appear in both after it is added to THEME, and the book's record
+ * wins because it is the one the book's own band was built from.
+ */
+export function mergePriorTiers(
+  book: ReadonlyMap<string, string>,
+  market: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const out = new Map(market);
+  for (const [t, v] of book) out.set(t, v);
+  return out;
+}

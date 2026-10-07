@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BAND, applyHysteresis, hysteresisTier } from "./hysteresis";
+import { DEFAULT_BAND, applyHysteresis, hysteresisTier, mergePriorTiers } from "./hysteresis";
 import { DEFAULT_PARAMS as P } from "./params";
 import type { ScreenRow, Tier } from "./types";
 
@@ -123,5 +123,17 @@ describe("applyHysteresis", () => {
 
     const [fresh] = applyHysteresis([row({ rsPct: 78, tier: "Buy" })], new Map());
     expect(fresh.bandTier).toBe("Buy");
+  });
+});
+
+describe("mergePriorTiers", () => {
+  it("combines book and market prior tiers", () => {
+    const out = mergePriorTiers(new Map([["LITE", "Strong Buy"]]), new Map([["XOM", "Buy"]]));
+    expect(out).toEqual(new Map([["XOM", "Buy"], ["LITE", "Strong Buy"]]));
+  });
+
+  it("book tier wins over market tier", () => {
+    const out = mergePriorTiers(new Map([["NEW", "Hold"]]), new Map([["NEW", "Strong Buy"]]));
+    expect(out.get("NEW")).toBe("Hold");
   });
 });

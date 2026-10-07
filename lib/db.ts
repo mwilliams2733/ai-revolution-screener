@@ -11,6 +11,7 @@ import { classify, type SectorLabels } from "./sic";
 import type { HealthFacts } from "./health-overlay";
 import type { Fundamentals } from "./edgar";
 import type { StoredFundamentals } from "./fundamentals-store";
+import { mergePriorTiers } from "./hysteresis";
 import type { FactPoint } from "./solvency";
 import { byTicker, type Split } from "./splits";
 import type { Bar, BarsByTicker } from "./types";
@@ -844,7 +845,70 @@ export async function previousMomentumTiers(session: string): Promise<Map<string
     SELECT ticker, COALESCE(momentum_tier, tier) AS tier
     FROM tier_history WHERE session = ${prev[0].session}::date
   `) as { ticker: string; tier: string | null }[];
-  return new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
+  const book = new Map(rows.filter((r) => r.tier).map((r) => [r.ticker, r.tier as string]));
+
+  // Non-book names live in their own table so tier_history's readers never
+  // see them. Same prior session, so both halves describe the same day.
+  await ensureMarketBandTiers();
+  const marketRows = (await sql`
+    SELECT ticker, band_tier FROM market_band_tiers WHERE session = ${prev[0].session}::date
+  `) as { ticker: string; band_tier: string | null }[];
+  const market = new Map(
+    marketRows.filter((r) => r.band_tier).map((r) => [r.ticker, r.band_tier as string]),
+  );
+  return mergePriorTiers(book, market);
+}
+
+// ---------------------------------------------------------------------------
+// Market band tiers
+// ---------------------------------------------------------------------------
+
+/** Sessions of band memory kept. Hysteresis only ever reads the previous one. */
+export const MARKET_BAND_KEEP_SESSIONS = 10;
+
+async function ensureMarketBandTiers(): Promise<void> {
+  const sql = client();
+  await sql`
+    CREATE TABLE IF NOT EXISTS market_band_tiers (
+      session   DATE NOT NULL,
+      ticker    TEXT NOT NULL,
+      band_tier TEXT,
+      PRIMARY KEY (session, ticker)
+    )
+  `;
+}
+
+/**
+ * Record each non-book name's band tier for tomorrow's hysteresis, then prune.
+ * Never touches tier_history.
+ */
+export async function upsertMarketBandTiers(
+  session: string,
+  rows: readonly { ticker: string; bandTier: string | null }[],
+): Promise<number> {
+  await ensureMarketBandTiers();
+  const sql = client();
+  let n = 0;
+  for (const batch of chunk(rows, CHUNK)) {
+    await sql`
+      INSERT INTO market_band_tiers (session, ticker, band_tier)
+      SELECT ${session}::date, * FROM UNNEST(
+        ${batch.map((r) => r.ticker)}::text[],
+        ${batch.map((r) => r.bandTier)}::text[]
+      ) AS t(ticker, band_tier)
+      ON CONFLICT (session, ticker) DO UPDATE SET band_tier = EXCLUDED.band_tier
+    `;
+    n += batch.length;
+  }
+  await sql`
+    DELETE FROM market_band_tiers WHERE session < (
+      SELECT min(session) FROM (
+        SELECT DISTINCT session FROM market_band_tiers
+        ORDER BY session DESC LIMIT ${MARKET_BAND_KEEP_SESSIONS}
+      ) recent
+    )
+  `;
+  return n;
 }
 
 // ---------------------------------------------------------------------------
