@@ -20,6 +20,7 @@ import {
   recordSession,
   startRun,
   upsertTierHistory,
+  upsertMarketBandTiers,
   markSplitsHandled,
   replaceTickerBars,
   storedCalendarBounds,
@@ -34,6 +35,7 @@ import { refetchTargets } from "@/lib/splits";
 import { sessionBacklog, splitBacklog } from "@/lib/refresh-backlog";
 import { cronAuthorised, cronUnauthorisedBody } from "@/lib/cron-auth";
 import { alertKey } from "@/lib/mail-ledger";
+import { defaultTopUpDeps, topUpFundamentals } from "@/lib/fundamentals-topup";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -56,6 +58,18 @@ const MAX_SESSIONS_PER_RUN = 3;
  * interrupted run resumes exactly rather than restarting or skipping.
  */
 const MAX_REFETCH_PER_RUN = 25;
+
+/**
+ * Wall-clock budget for the nightly fundamentals top-up.
+ *
+ * Chosen from measured refresh durations: 72 nightly runs over 45 days, p95
+ * 81.6s, max 102.2s, against the 300s limit with 60s spare -> min(60, 137.8).
+ * Measured EDGAR throughput is 172-240 ms per name, so 60s covers ~250-350
+ * names, more than a full weekly re-fetch of the ~315 candidates. Whatever does
+ * not fit is still wanted tomorrow -- the work list is a set difference, not a
+ * cursor.
+ */
+const FUNDAMENTALS_BUDGET_MS = 60 * 1000;
 
 async function handle(req: Request) {
   if (!cronAuthorised(req)) {
@@ -173,6 +187,23 @@ async function handle(req: Request) {
     const previous = await previousTiers(screen.asOf);
     const snapshotted = await upsertTierHistory(screen.asOf, tierRows);
 
+    // Band memory for every non-book name, so tomorrow's hysteresis works
+    // market-wide. Kept out of tier_history; see db/schema.sql. A failure here
+    // costs one night of band memory, not the refresh.
+    let marketBand: Record<string, unknown>;
+    try {
+      marketBand = {
+        written: await upsertMarketBandTiers(
+          screen.asOf,
+          screen.market
+            .filter((r) => !r.inBook)
+            .map((r) => ({ ticker: r.ticker, bandTier: r.bandTier })),
+        ),
+      };
+    } catch (e) {
+      marketBand = { error: e instanceof Error ? e.message : String(e) };
+    }
+
     const changes = diffTiers(
       previous?.tiers ?? new Map(),
       screen.themed.map((r) => ({
@@ -222,6 +253,25 @@ async function handle(req: Request) {
       }
     }
 
+    // Fundamentals top-up, bounded. Feeds the NEXT screen; today's already ran.
+    let fundamentals: Record<string, unknown>;
+    try {
+      const r = await topUpFundamentals(
+        screen.fundamentalsWanted,
+        FUNDAMENTALS_BUDGET_MS,
+        defaultTopUpDeps(),
+      );
+      fundamentals = {
+        wanted: screen.fundamentalsWanted.length,
+        fetched: r.fetched,
+        failed: r.failed.length,
+        remaining: r.remaining,
+        elapsedMs: r.elapsedMs,
+      };
+    } catch (e) {
+      fundamentals = { error: e instanceof Error ? e.message : String(e) };
+    }
+
     await finishRun(runId, sessionsAdded, barsAdded, true);
 
     return NextResponse.json({
@@ -232,6 +282,8 @@ async function handle(req: Request) {
       barsAdded,
       tiersSnapshotted: snapshotted,
       tierChanges: changes.length,
+      marketBand,
+      fundamentals,
       alert,
       splitsRepaired: repairedTickers,
       // Both backlogs, so a run that is quietly falling behind is visible in

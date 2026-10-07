@@ -18,6 +18,7 @@
     "refetch-splits": "tsx --env-file=.env.local scripts/refetch-splits.ts",
     "splits": "tsx --env-file=.env.local scripts/splits.ts",
     "health": "tsx --env-file=.env.local scripts/health.ts",
+    "fundamentals": "tsx --env-file=.env.local scripts/fundamentals.ts",
     "sectors": "tsx --env-file=.env.local scripts/sectors.ts",
     "backtest": "tsx --env-file=.env.local scripts/backtest.ts",
     "replay": "tsx --env-file=.env.local scripts/replay-tiers.ts",
