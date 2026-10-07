@@ -32,6 +32,7 @@ import {
   splitHistory,
   medianDollarVolume,
   lastRefresh,
+  loadStoredFundamentals,
 } from "./db";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
@@ -50,8 +51,9 @@ import {
 import type { TrendBar } from "./trend-template";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio-overlay";
 import { buildPortfolio } from "./tiers";
-import { fundamentalsFor, type Fundamentals } from "./edgar";
-import { applyFundamentalOverlay, demotedCount, type OverlaidRow } from "./fundamental-gate";
+import { usableFundamentals, wantedFundamentals, type StoredFundamentals } from "./fundamentals-store";
+import { splitBook, toMarketRow, type MarketRow } from "./market-rows";
+import { applyFundamentalOverlay, demotedCount } from "./fundamental-gate";
 import { capHeldCount, capStrongBuy, cappedCount, type CappedRow } from "./strong-buy-cap";
 import {
   applyHealth,
@@ -64,7 +66,7 @@ import type { Split } from "./splits";
 import { runScreen, DEFAULT_PARAMS, withParams } from "./index";
 import { exclusionReason, themeUniverse } from "./theme";
 import type { AnchorLabel, BarsByTicker, ScreenRow, Snapshots, Tier } from "./types";
-import { classify, type SectorLabels } from "./sic";
+import type { SectorLabels } from "./sic";
 import { isoDaysAgo } from "./dates";
 
 const ANCHOR_LABELS: readonly AnchorLabel[] = ["r1m", "r3m", "r6m", "r12m"] as const;
@@ -166,38 +168,6 @@ export interface PricedRow extends CappedRow, VolumeFields, TrendFields, StageFi
   readonly open: number | null;
 }
 
-/**
- * A ranked name from the FULL liquid universe, trimmed for transport.
- *
- * The themed rows carry ~30 fields each; at ~2,300 names that shape would be a
- * multi-megabyte payload on a phone. These carry only what the leaders table
- * renders and sorts on. Anything richer is a click away through the existing
- * ticker lookup.
- */
-export interface LeaderRow {
-  readonly ticker: string;
-  readonly name: string;
-  /**
-   * SIC sector, NOT the theme sector.
-   *
-   * Deliberately a separate field from ScreenRow.sector: that one names a slice
-   * of the hand-maintained AI CapEx map ("memory_storage"), this one classifies
-   * the whole market. Collapsing them into one field would make a filter mean
-   * two different things depending on which table you were looking at.
-   */
-  readonly sector: string;
-  readonly subsector: string;
-  readonly price: number;
-  readonly dollarVolume: number;
-  readonly r3m: number;
-  readonly r12m: number;
-  readonly rsPct: number | null;
-  readonly vsMa: number;
-  readonly tier: Tier | null;
-  /** True when the name is also in the AI CapEx theme map. */
-  readonly inTheme: boolean;
-}
-
 export interface ScreenPayload {
   readonly asOf: string;
   readonly anchors: Record<string, { date: string; bars: number; source: Source }>;
@@ -235,16 +205,15 @@ export interface ScreenPayload {
   readonly history: TierHistorySummary;
   readonly strongBuyLimit: number;
   /**
-   * Every ranked name in the liquid universe, theme filter off.
-   *
-   * The percentiles here are the same ones the themed table shows -- ranking
-   * happens once, across everything, before any filter. So a sector view is a
-   * view of the SAME ranking, not a re-rank inside the sector, and an RS of 90
-   * means the same thing in both tables.
+   * Every ranked name in the liquid universe, under the full ruleset, grouped
+   * for display. Tiers here have NO Strong Buy cap; the cap is a property of
+   * the AI book (`themed`), not of the market.
    */
-  readonly leaders: readonly LeaderRow[];
-  /** How many leaders carry a real SIC classification rather than "Other". */
-  readonly leadersClassified: number;
+  readonly market: readonly MarketRow[];
+  /** How many market rows carry a real SIC classification. */
+  readonly marketClassified: number;
+  /** Strong Buy candidates whose stored fundamentals are missing or stale. */
+  readonly fundamentalsWanted: readonly string[];
   /** Theme names held out by the crowding veto, ranked, never silently dropped. */
   readonly vetoed: readonly VetoedRow[];
   readonly meta: {
@@ -254,6 +223,8 @@ export interface ScreenPayload {
     readonly elapsedMs: number;
     /** Names the fundamental gate could actually judge. */
     readonly fundamentalsChecked: number;
+    /** Market-wide momentum Strong Buys the gate could not judge (no stored facts yet). */
+    readonly fundamentalsUnverified: number;
     /** Rows whose vsMa is a true rolling mean rather than the proxy. */
     readonly trueMaRows: number;
     readonly maWindow: number;
@@ -356,52 +327,23 @@ async function loadOne(
 }
 
 /**
- * Fundamentals for the names the gate can actually act on.
+ * Stored fundamentals, empty without a database.
  *
- * Only momentum Strong Buys are fetched: the gate exists to tighten the top
- * tier, and pulling EDGAR for all ~104 themed names would triple the wait for
- * data that changes nothing. Results are memoised per server instance.
- *
- * This belongs in the nightly refresh once DATABASE_URL exists — computed once,
- * stored, served instantly. Until then it is an in-memory cache that dies on a
- * cold start, which is why the gate must treat "not fetched" as unverified
- * rather than as a failing grade.
+ * Never live EDGAR: ~400 market-wide Strong Buy candidates cannot be fetched
+ * inside a 60s request. The nightly refresh and scripts/fundamentals.ts fill
+ * the table. A failure here is a warning; the gate then reads every candidate
+ * as unverified, which demotes nothing.
  */
-const fundamentalCache = new Map<string, Fundamentals | null>();
-
-async function fundamentalsForCandidates(
-  rows: readonly ScreenRow[],
-  ciks: ReadonlyMap<string, string>,
-): Promise<Map<string, Fundamentals>> {
-  const out = new Map<string, Fundamentals>();
-  const candidates = rows.filter((r) => r.tier === "Strong Buy");
-
-  // Issue all candidates at once; lib/edgar.ts caps how many are actually in
-  // flight, so this respects EDGAR's rate limit without serialising the wait.
-  await Promise.all(
-    candidates.map(async (r) => {
-      if (fundamentalCache.has(r.ticker)) {
-        const hit = fundamentalCache.get(r.ticker);
-        if (hit) out.set(r.ticker, hit);
-        return;
-      }
-      const cik = ciks.get(r.ticker);
-      if (!cik) {
-        fundamentalCache.set(r.ticker, null);
-        return;
-      }
-      try {
-        const f = await fundamentalsFor(cik);
-        fundamentalCache.set(r.ticker, f);
-        if (f) out.set(r.ticker, f);
-      } catch {
-        // A single EDGAR failure must not sink the whole screen.
-        fundamentalCache.set(r.ticker, null);
-      }
-    }),
-  );
-  return out;
+async function storedFundamentals(warnings: string[]): Promise<Map<string, StoredFundamentals>> {
+  if (!dbConfigured()) return new Map();
+  try {
+    return await loadStoredFundamentals();
+  } catch (e) {
+    warnings.push(`fundamentals: ${e instanceof Error ? e.message : String(e)}`);
+    return new Map();
+  }
 }
+
 
 /**
  * Names and CIKs from a SINGLE reference pass.
@@ -569,7 +511,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     anchors[label] = { date, bars: bars.size, source };
   }
 
-  const { names, ciks, sectors, source: namesSource, warnings: refWarnings } =
+  const { names, sectors, source: namesSource, warnings: refWarnings } =
     await resolveReference();
   warnings.push(...refWarnings);
 
@@ -600,7 +542,7 @@ async function computeScreen(): Promise<ScreenPayload> {
     }
   }
 
-  const { ranked, themed, universeSize } = runScreen({
+  const { ranked, universeSize } = runScreen({
     snapshots: snapshots as unknown as Snapshots,
     names: liquid,
     params: SCREEN_PARAMS,
@@ -630,33 +572,36 @@ async function computeScreen(): Promise<ScreenPayload> {
       .map(([ticker]) => ticker),
   );
 
-  // True moving averages FIRST: they change vsMa, which re-decides the tier,
-  // which decides who the fundamental gate and the cap even consider.
-  const themedTickers = themed.map((r) => r.ticker);
-  const history = await loadHistory(themedTickers, warnings);
-  const withMa = applyTrueMa(themed, history);
+  // Every ranked name runs the full ruleset; the AI book is a filter of the
+  // same rows (lib/market-rows.ts). True moving averages FIRST: they change
+  // vsMa, which re-decides the tier, which decides who the gate considers.
+  const rankedTickers = ranked.map((r) => r.ticker);
+  const history = await loadHistory(rankedTickers, warnings);
+  const withMa = applyTrueMa(ranked, history);
   const trended = applyHysteresis(withMa, priorTiers as ReadonlyMap<string, Tier>);
 
   // Stage needs the trend history, and the stage rule must run before the
   // fundamental gate and the cap: a topping name should not consume one of the
   // ten Strong Buy slots on its way down.
-  const trendBars = await loadTrendBars(themedTickers, warnings);
+  const trendBars = await loadTrendBars(rankedTickers, warnings);
   const staged = applyTrend(trended, trendBars);
   const stageRuled = applyStageRule(staged);
 
-  // Fundamental overlay: tighten Strong Buy without touching the momentum core.
-  const fundamentals = await fundamentalsForCandidates(stageRuled, ciks);
+  // Fundamental overlay from the nightly store. Candidates are the names the
+  // gate can act on: Strong Buys after the stage rule.
+  const stored = await storedFundamentals(warnings);
+  const fundamentals = usableFundamentals(stored);
+  const candidates = stageRuled.filter((r) => r.tier === "Strong Buy").map((r) => r.ticker);
+  const fundamentalsWanted = wantedFundamentals(
+    candidates,
+    new Map([...stored].map(([t, s]) => [t, s.fetchedAt])),
+    new Date(),
+  );
   const overlaid = applyFundamentalOverlay(stageRuled, fundamentals);
 
-  // Cap AFTER the gate: the gate removes names that do not deserve the tier on
-  // merit, then the cap takes the best of what is left. Reversed, a decelerating
-  // name would burn a slot on its way out.
   // Balance-sheet guardrails run BEFORE the cap, for the same reason the stage
   // rule does: a name that is about to be capped at Hold must not consume one
-  // of the ten Strong Buy slots on its way down. Ordered the other way the
-  // screen showed EIGHT Strong Buys -- the cap had filled all ten and the
-  // guardrails then emptied two, wasting the slots rather than passing them to
-  // the next healthy name.
+  // of the ten Strong Buy slots on its way down.
   const [healthFacts, splits] = dbConfigured()
     ? await Promise.all([
         companyHealth().catch((e: unknown) => {
@@ -671,20 +616,24 @@ async function computeScreen(): Promise<ScreenPayload> {
     : [new Map<string, HealthFacts>(), new Map<string, Split[]>()];
   const guarded = applyHealth(overlaid, healthFacts, splits);
 
-  const limited = capStrongBuy(guarded, STRONG_BUY_LIMIT, undefined, incumbents);
+  // The AI book: theme members minus spenders and the crowding veto, restricted
+  // to the liquid universe exactly as runScreen restricted `themed`. Only the
+  // book is capped.
+  const bookTheme = themeUniverse({ restrictTo: new Set(liquid.keys()) });
+  const inBook = <T extends ScreenRow>(rows: readonly T[]) => splitBook(rows, bookTheme);
+  const limited = capStrongBuy(inBook(guarded), STRONG_BUY_LIMIT, undefined, incumbents);
+  const bookCapped = new Set(limited.filter((r) => r.capped).map((r) => r.ticker));
 
   // The book is selected from the FINAL tiers. runScreen also returns a
-  // portfolio, but it is built from the raw momentum tiers before the six
-  // overlays above re-decide them, so it can hold a stage-4 name the screen
-  // shows as Hold and omit one the overlays promoted. Measuring risk over
-  // that book described a portfolio the screen's own rules reject.
+  // portfolio, but it is built from the raw momentum tiers before the
+  // overlays above re-decide them.
   const portfolio = buildPortfolio(limited, SCREEN_PARAMS);
+
 
   // Volume metrics grade against the FULL ranked universe, never the theme.
   const volumeBars = await loadVolumeBars(warnings);
   const withVolume = applyVolume(ranked, limited, volumeBars);
 
-  const themeTickers = new Set(themed.map((r) => r.ticker));
 
   const priced: PricedRow[] = withVolume.map((r) => {
     const open = opens.get(r.ticker) ?? null;
@@ -723,37 +672,27 @@ async function computeScreen(): Promise<ScreenPayload> {
     universeSize,
     themed: priced,
     portfolio,
-    demoted: demotedCount(overlaid),
+    demoted: demotedCount(inBook(overlaid)),
     // Risk is measured over the SELECTED BOOK -- buildPortfolio's 7/7/5 shape
     // -- not over every buy-side candidate. "How correlated is what I own"
     // is a different question from "how correlated are the names I could own",
     // and measuring 66 candidates would understate concentration badly.
     risk: portfolioRisk(portfolio, history),
     history: await loadHistorySummary(warnings),
-    leaders: ranked.map((r): LeaderRow => {
-      const labels = sectors.get(r.ticker) ?? classify(null);
-      return {
-        ticker: r.ticker,
-        name: r.name,
-        sector: labels.sector,
-        subsector: labels.subsector,
-        price: r.price,
-        dollarVolume: r.dollarVolume,
-        r3m: r.r3m,
-        r12m: r.r12m,
-        rsPct: r.rsPct,
-        vsMa: r.vsMa,
-        tier: r.tier,
-        inTheme: themeTickers.has(r.ticker),
-      };
-    }),
-    leadersClassified: ranked.filter((r) => sectors.has(r.ticker)).length,
+    market: guarded.map((r) =>
+      toMarketRow(r, sectors.get(r.ticker), {
+        inBook: bookTheme.has(r.ticker),
+        bookCapped: bookCapped.has(r.ticker),
+      }),
+    ),
+    marketClassified: ranked.filter((r) => sectors.has(r.ticker)).length,
+    fundamentalsWanted,
     capped: cappedCount(limited),
     capHeld: capHeldCount(limited),
     healthCapped: healthCappedCount(limited),
     healthUnknown: healthUnknownCount(limited),
-    stageDemoted: stageDemotedCount(stageRuled),
-    held: heldCount(trended),
+    stageDemoted: stageDemotedCount(inBook(stageRuled)),
+    held: heldCount(inBook(trended)),
     strongBuyLimit: STRONG_BUY_LIMIT,
     vetoed: collectVetoed(ranked, new Set(names.keys())),
     meta: {
@@ -761,12 +700,15 @@ async function computeScreen(): Promise<ScreenPayload> {
       calendarSource,
       dbAvailable: dbConfigured(),
       elapsedMs: Date.now() - started,
-      fundamentalsChecked: fundamentals.size,
-      trueMaRows: trueMaCount(trended),
+      fundamentalsChecked: candidates.filter((t) => fundamentals.has(t)).length,
+      fundamentalsUnverified: guarded.filter(
+        (r) => r.momentumTier === "Strong Buy" && r.gate === "unverified",
+      ).length,
+      trueMaRows: trueMaCount(inBook(trended)),
       maWindow: MA_WINDOW,
       volumeMeasured: volumeMeasuredCount(withVolume),
       volumeWindow: VOLUME_WINDOW,
-      trendScored: trendScoredCount(staged),
+      trendScored: trendScoredCount(inBook(staged)),
       trendMinHistory: TREND_MIN_HISTORY,
       warnings: [...warnings],
     },

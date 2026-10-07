@@ -5,7 +5,8 @@ import { SECTORS, sectorsPresent, subsectorsPresent } from "@/lib/sic";
 import { DEFAULT_PARAMS } from "@/lib/params";
 import { MISSING, money, num, pct, railWidth, signClass } from "@/lib/format";
 import { usePersistedState } from "./use-persisted-state";
-import type { LeaderRow, ScreenPayload } from "@/lib/screen-service";
+import type { ScreenPayload } from "@/lib/screen-service";
+import type { MarketRow as LeaderRow } from "@/lib/market-rows";
 
 /**
  * The whole ranked universe, filterable by sector and subsector.
@@ -104,7 +105,7 @@ export default function LeadersTable({ data }: { data: ScreenPayload }) {
   const [dir, setDir] = usePersistedState<"asc" | "desc">("leaders.dir", "desc", isDir);
   const [shown, setShown] = usePersistedState<number>("leaders.shown", PAGE, isCount);
 
-  const all = data.leaders;
+  const all = data.market;
   const selected = useMemo(() => new Set(sectors), [sectors]);
 
   const availableSectors = useMemo(() => sectorsPresent(all), [all]);
@@ -138,7 +139,7 @@ export default function LeadersTable({ data }: { data: ScreenPayload }) {
   const toggle = (list: string[], set: (v: string[]) => void, v: string) =>
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-  const unclassified = all.length - data.leadersClassified;
+  const unclassified = all.length - data.marketClassified;
   // With one sector selected the Sector column repeats the filter on every
   // row. Dropping it buys back the width the company names need.
   const showSector = sectors.length !== 1;
@@ -308,10 +309,10 @@ export default function LeadersTable({ data }: { data: ScreenPayload }) {
             {rows.slice(0, shown).map((r) => {
               const w = railWidth(r.rsPct);
               return (
-                <tr key={r.ticker} className={r.inTheme ? "in-theme" : undefined}>
+                <tr key={r.ticker} className={r.inBook ? "in-theme" : undefined}>
                   <th scope="row">
                     <span className="lt-ticker">{r.ticker}</span>
-                    {r.inTheme && (
+                    {r.inBook && (
                       <span className="theme-dot" title="In the AI CapEx theme">●</span>
                     )}
                     <span className="lt-name">{r.name}</span>

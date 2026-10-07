@@ -359,7 +359,7 @@ revenue fetched for ${n} companies
       `dilution <= ${(t.maxDilution * 100).toFixed(0)}%/yr, runway >= ${t.minRunwayMonths} months\n`,
   );
 
-  const judged = screen.leaders.map((r) => {
+  const judged = screen.market.map((r) => {
     const c = cached.get(r.ticker);
     const h = assess(
       {
@@ -377,7 +377,7 @@ revenue fetched for ${n} companies
   const counts = { pass: 0, fail: 0, unknown: 0 };
   for (const j of judged) counts[j.health.verdict] += 1;
   console.log(
-    `ranked universe ${screen.leaders.length}: ` +
+    `ranked universe ${screen.market.length}: ` +
       `${counts.pass} pass, ${counts.fail} FAIL, ${counts.unknown} unknown\n`,
   );
 
@@ -389,7 +389,7 @@ revenue fetched for ${n} companies
   }
 
   // What matters most: names currently ON the screen that would be dropped.
-  const inTheme = judged.filter((j) => j.row.inTheme && j.health.verdict === "fail");
+  const inTheme = judged.filter((j) => j.row.inBook && j.health.verdict === "fail");
   console.log(`\nTHEME NAMES THAT WOULD FAIL (${inTheme.length} of ${screen.themed.length}):`);
   if (!inTheme.length) console.log("  none");
   for (const j of inTheme.sort((a, b) => (b.row.rsPct ?? 0) - (a.row.rsPct ?? 0))) {
