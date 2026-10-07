@@ -1066,3 +1066,53 @@ tr.vetoed .rail-fill { background: var(--veto); }
 .spark-mark.tier-strong-buy { fill: var(--cool-strong); }
 .spark-mark.tier-buy { fill: var(--cool-mid); }
 .spark-mark.tier-hold { fill: var(--warm); }
+
+/* Whole market by group (app/market-groups.tsx). Reuses the leaders table,
+   sector strip, chips and panel; these rules cover only what is new. */
+.mg-stats { text-decoration: none; color: inherit; }
+.mg-kind {
+  margin-left: 6px;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--cool-strong);
+}
+.mg-search {
+  margin-left: auto;
+  min-width: 0;
+  flex: 1 1 160px;
+  max-width: 240px;
+  padding: 4px 10px;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+}
+.mg-group { margin-top: 28px; scroll-margin-top: 16px; }
+.mg-group h3 { margin: 0 0 8px; font-size: 1rem; }
+.mg-toggle {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.mg-toggle:focus-visible { outline: 2px solid var(--cool-mid); outline-offset: 2px; }
+.mg-count { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.mg-badge {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--warm, var(--muted));
+}
+.mg-notes { font-size: 0.72rem; color: var(--muted); min-width: 12ch; }
+/* The fourth column holds "SB / B / H" counts, up to three 3-digit numbers,
+   which the 76px "Above MA" column it replaces cannot fit without wrapping. */
+.ss-head.mg-stats,
+.ss-row.mg-stats { grid-template-columns: minmax(120px, 1.6fr) 56px 76px 116px minmax(0, 1.2fr); }
+.mg-stats .num { white-space: nowrap; }
+@media (max-width: 560px) {
+  .ss-head.mg-stats,
+  .ss-row.mg-stats { grid-template-columns: minmax(90px, 1.5fr) 40px 48px 100px; }
+}

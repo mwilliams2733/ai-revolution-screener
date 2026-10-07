@@ -3,7 +3,7 @@ import { getScreen } from "@/lib/screen-service";
 import { DEFAULT_PARAMS } from "@/lib/params";
 import ScreenTable from "./screen-table";
 import TickerLookup from "./ticker-lookup";
-import LeadersTable from "./leaders-table";
+import MarketGroups from "./market-groups";
 import { buildRefreshStamp } from "@/lib/refresh-stamp";
 
 // Delayed end-of-day bars: revalidate hourly rather than on every request.
@@ -287,11 +287,10 @@ export default async function Page() {
 
       <ScreenTable data={data} />
 
-      {/* The full universe, below the theme. Order is the argument: the theme
-          table is what the strategy says to do, the leaders table is the
-          market it was selected from. Putting leaders first would bury the
-          decision surface under 2,300 rows. */}
-      <LeadersTable data={data} />
+      {/* The whole market, grouped, below the AI book. Order is the argument:
+          the book is what the strategy says to do; the groups are the market
+          it was selected from, under the same rules and without the cap. */}
+      <MarketGroups data={data} />
 
       <p className="foot">
         Each rail runs 0 to 100 across the ranked universe, with the two cutoffs marked. Cool
