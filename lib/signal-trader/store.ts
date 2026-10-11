@@ -106,6 +106,14 @@ export async function persistSession(o: SessionOutcome, note: string): Promise<v
   const q = [
     // First: claim the session. No ON CONFLICT -- a duplicate run must fail here.
     sql`INSERT INTO st_sessions (session, note) VALUES (${o.session}::date, ${note})`,
+    // A pick the user cancelled after this run loaded its state must not be
+    // filled behind their back. Casting the message to integer raises it as
+    // the error, which rolls the whole session back; the retry reloads state.
+    ...o.opened.map((p) => sql`
+      SELECT CASE WHEN status <> 'pending'
+        THEN CAST(('pick ' || pick_key || ' is ' || status || ', not pending: it changed while the job ran') AS integer)
+        ELSE 0 END
+      FROM st_picks WHERE pick_key = ${p.key}`),
     ...o.newPicks.map((p) => sql`
       INSERT INTO st_picks (pick_key, decided_session, ticker, signal, window_days, expected_move, created_at, status)
       VALUES (${p.key}, ${p.decidedSession}::date, ${p.ticker}, ${p.signal}, ${p.windowDays}, ${p.expectedMove}, ${p.createdAt}::timestamptz, 'pending')`),
