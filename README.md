@@ -393,6 +393,13 @@ picks. Open positions keep being managed: stops and window exits still run. A
 held pick fills at the first open after resume, which can be well after its
 signal.
 
+**Pause, Cancel and Close are judged at the open**, never when the morning job
+happens to run. Every pause or resume is logged with its time, and a fill is
+held only if the account was paused at that session's open. A Cancel pressed
+before a pick's fill open cancels it; pressed after, the fill stands and the
+pick closes at the next open. A Close always fills at the next open. None of
+them can undo a fill whose outcome was already visible.
+
 **Schedule.** `/api/signal-trader/advance` runs at 12:45 UTC with a 13:15 UTC
 retry, after the 12:00 refresh and before the earliest open. Both Vercel cron and
 the GitHub backup fire it. The backup first asks `/advance/status` and skips if

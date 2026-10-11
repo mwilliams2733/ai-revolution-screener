@@ -23,6 +23,13 @@ export interface PendingPick {
   readonly createdAt: string;
   readonly windowDays: number;
   readonly expectedMove: number;
+  /**
+   * When the user pressed Cancel, if they did. Judged at the open like pause:
+   * before the fill's open it cancels the pick; after it, the fill stands and
+   * the cancel becomes a close at the next open -- never a veto of a fill
+   * whose outcome was already visible.
+   */
+  readonly cancelRequestedAt?: string | null;
 }
 
 export interface OpenPosition {
@@ -143,6 +150,10 @@ export function advanceSession(
     }
     // Pause holds fills as well as new picks (owner, 2026-10-10). Open
     // positions are still managed: stops and window exits keep running.
+    if (p.cancelRequestedAt && Date.parse(p.cancelRequestedAt) < openAt) {
+      cancelled.push({ key: p.key, note: "cancelled by user before it filled" });
+      continue;
+    }
     if (pausedAt(state.pauseLog, openAt)) {
       pending.push(p);
       notes.push(`${p.key}: held, auto-trade was paused at the ${session} open`);
@@ -164,7 +175,9 @@ export function advanceSession(
     const pos: OpenPosition = {
       key: p.key, ticker: p.ticker, signal: p.signal, qty, entryPrice: bar.open,
       entrySession: session, stopPrice: bar.open * (1 - cfg.exits.stock_stop),
-      sessionsHeld: 0, windowDays: p.windowDays, expectedMove: p.expectedMove, closeRequestedAt: null,
+      sessionsHeld: 0, windowDays: p.windowDays, expectedMove: p.expectedMove,
+      // A cancel pressed after this open cannot undo the fill: it closes next open.
+      closeRequestedAt: p.cancelRequestedAt ?? null,
     };
     open.push(pos);
     opened.push(pos);

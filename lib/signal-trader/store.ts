@@ -35,6 +35,7 @@ export async function ensureSchema(): Promise<void> {
   await sql`CREATE TABLE IF NOT EXISTS st_marks (pick_key TEXT NOT NULL, session DATE NOT NULL, price DOUBLE PRECISION NOT NULL, PRIMARY KEY (pick_key, session))`;
   await sql`CREATE TABLE IF NOT EXISTS st_grades (pick_key TEXT PRIMARY KEY, signal TEXT NOT NULL, ticker TEXT NOT NULL, entry_session DATE NOT NULL, exit_session DATE NOT NULL, realized_return DOUBLE PRECISION NOT NULL, spy_return DOUBLE PRECISION, excess_return DOUBLE PRECISION, hit BOOLEAN NOT NULL, pnl DOUBLE PRECISION NOT NULL, expected_move DOUBLE PRECISION NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS st_runs (id BIGSERIAL PRIMARY KEY, job TEXT NOT NULL, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ, status TEXT, note TEXT)`;
+  await sql`ALTER TABLE st_picks ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMPTZ`;
   await sql`CREATE TABLE IF NOT EXISTS st_pause_log (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), paused BOOLEAN NOT NULL)`;
   await sql`INSERT INTO st_account (id, cash, paused) VALUES (1, ${ST_CONFIG.sizing.starting_cash}, false) ON CONFLICT (id) DO NOTHING`;
   schemaReady = true;
@@ -76,9 +77,10 @@ export async function loadState(): Promise<EngineState> {
   const sql = client();
   const [acct] = (await sql`SELECT cash, paused FROM st_account WHERE id = 1`) as { cash: unknown; paused: boolean }[];
   const pending = (await sql`
-    SELECT pick_key, ticker, signal, decided_session::text AS decided_session, created_at, window_days, expected_move
+    SELECT pick_key, ticker, signal, decided_session::text AS decided_session, created_at, window_days, expected_move,
+           cancel_requested_at
     FROM st_picks WHERE status = 'pending' ORDER BY decided_session, pick_key
-  `) as { pick_key: string; ticker: string; signal: SignalName; decided_session: string; created_at: Date | string; window_days: unknown; expected_move: unknown }[];
+  `) as { pick_key: string; ticker: string; signal: SignalName; decided_session: string; created_at: Date | string; window_days: unknown; expected_move: unknown; cancel_requested_at: Date | string | null }[];
   const open = (await sql`
     SELECT pick_key, ticker, signal, qty, entry_price, entry_session::text AS entry_session, stop_price,
            sessions_held, window_days, expected_move, close_requested_at
@@ -93,6 +95,7 @@ export async function loadState(): Promise<EngineState> {
     pending: pending.map((p): PendingPick => ({
       key: p.pick_key, ticker: p.ticker, signal: p.signal, decidedSession: p.decided_session,
       createdAt: iso(p.created_at), windowDays: n(p.window_days), expectedMove: n(p.expected_move),
+      cancelRequestedAt: p.cancel_requested_at ? iso(p.cancel_requested_at) : null,
     })),
     open: open.map((p): OpenPosition => ({
       key: p.pick_key, ticker: p.ticker, signal: p.signal, qty: n(p.qty), entryPrice: n(p.entry_price),
@@ -136,6 +139,13 @@ export async function persistSession(o: SessionOutcome, note: string): Promise<v
       INSERT INTO st_positions (pick_key, ticker, signal, qty, entry_price, entry_session, stop_price, sessions_held, window_days, expected_move, status)
       VALUES (${p.key}, ${p.ticker}, ${p.signal}, ${p.qty}, ${p.entryPrice}, ${p.entrySession}::date, ${p.stopPrice}, 0, ${p.windowDays}, ${p.expectedMove}, 'open')`),
     ...o.opened.map((p) => sql`UPDATE st_picks SET status = 'open' WHERE pick_key = ${p.key}`),
+    // A cancel pressed after the fill's open (even mid-run) becomes a close
+    // at the next open; read it from the pick row so a concurrent press is not lost.
+    ...o.opened.map((p) => sql`
+      UPDATE st_positions SET close_requested_at = COALESCE(
+        close_requested_at, ${p.closeRequestedAt}::timestamptz,
+        (SELECT cancel_requested_at FROM st_picks WHERE pick_key = ${p.key}))
+      WHERE pick_key = ${p.key}`),
     ...o.fills.map((f) => sql`
       INSERT INTO st_fills (pick_key, side, session, qty, price, note)
       VALUES (${f.key}, ${f.side}, ${f.session}::date, ${f.qty}, ${f.price}, ${f.note})`),
@@ -177,14 +187,18 @@ export async function setPaused(paused: boolean): Promise<void> {
   ]);
 }
 
-/** Cancel a pick that has not filled; otherwise ask for a close at the next open. */
-export async function requestClose(key: string, now: Date): Promise<"cancelled" | "close_requested" | "not_found"> {
+/**
+ * Record a cancel (pending pick) or a close (open position) with its time.
+ * Both are judged at the next open by the engine, never immediately: an
+ * immediate cancel could veto a fill whose outcome was already visible.
+ */
+export async function requestClose(key: string, now: Date): Promise<"cancel_requested" | "close_requested" | "not_found"> {
   await ensureSchema();
   const sql = client();
   const cancelled = (await sql`
-    UPDATE st_picks SET status = 'cancelled', note = 'cancelled by user before it filled'
-    WHERE pick_key = ${key} AND status = 'pending' RETURNING pick_key`) as unknown[];
-  if (cancelled.length) return "cancelled";
+    UPDATE st_picks SET cancel_requested_at = ${now.toISOString()}::timestamptz
+    WHERE pick_key = ${key} AND status = 'pending' AND cancel_requested_at IS NULL RETURNING pick_key`) as unknown[];
+  if (cancelled.length) return "cancel_requested";
   const flagged = (await sql`
     UPDATE st_positions SET close_requested_at = ${now.toISOString()}::timestamptz
     WHERE pick_key = ${key} AND status = 'open' AND close_requested_at IS NULL RETURNING pick_key`) as unknown[];
@@ -212,13 +226,15 @@ export async function readAccount(): Promise<{ cash: number; paused: boolean }> 
 export interface PickRow {
   key: string; decidedSession: string; ticker: string; signal: SignalName; windowDays: number;
   expectedMove: number; status: string; note: string | null; entrySession: string | null; entryPrice: number | null;
+  cancelRequestedAt: string | null;
 }
 
 export async function readPicks(sinceSession: string): Promise<PickRow[]> {
   await ensureSchema();
   const rows = (await client()`
     SELECT p.pick_key, p.decided_session::text AS decided_session, p.ticker, p.signal, p.window_days,
-           p.expected_move, p.status, p.note, s.entry_session::text AS entry_session, s.entry_price
+           p.expected_move, p.status, p.note, s.entry_session::text AS entry_session, s.entry_price,
+           p.cancel_requested_at
     FROM st_picks p LEFT JOIN st_positions s ON s.pick_key = p.pick_key
     WHERE p.decided_session >= ${sinceSession}::date
     ORDER BY p.decided_session DESC, p.ticker`) as Record<string, unknown>[];
@@ -228,6 +244,7 @@ export async function readPicks(sinceSession: string): Promise<PickRow[]> {
     status: r.status as string, note: (r.note as string | null) ?? null,
     entrySession: (r.entry_session as string | null) ?? null,
     entryPrice: r.entry_price == null ? null : n(r.entry_price),
+    cancelRequestedAt: r.cancel_requested_at ? new Date(r.cancel_requested_at as string).toISOString() : null,
   }));
 }
 

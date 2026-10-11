@@ -242,3 +242,28 @@ describe("pause is judged at each open, not when the job runs", () => {
     expect(out.opened[0]).toMatchObject({ entryPrice: 100, entrySession: S[1] });
   });
 });
+
+describe("cancel is judged at the open, like pause", () => {
+  const bars = book({ NVDA: { [S[1]]: { open: 100, low: 99, close: 95 }, [S[2]]: { open: 94, low: 93, close: 96 } } });
+
+  it("a cancel requested before the fill open cancels the pick", () => {
+    const out = advanceSession(
+      { ...empty, pending: [pick({ cancelRequestedAt: EARLY(S[1]).toISOString() })] },
+      ctx(S[1], LATE(S[2]), bars),
+    );
+    expect(out.opened).toHaveLength(0);
+    expect(out.cancelled.map((c) => c.key)).toEqual([pick().key]);
+    expect(out.state.pending).toHaveLength(0);
+  });
+
+  it("a cancel requested after the fill open cannot undo that fill: it closes at the next open", () => {
+    const day1 = advanceSession(
+      { ...empty, pending: [pick({ cancelRequestedAt: LATE(S[1]).toISOString() })] },
+      ctx(S[1], LATE(S[2]), bars),
+    );
+    expect(day1.opened[0]).toMatchObject({ entryPrice: 100, closeRequestedAt: LATE(S[1]).toISOString() });
+    const day2 = advanceSession(day1.state, ctx(S[2], LATE(S[2]), bars));
+    expect(day2.exits[0]).toMatchObject({ reason: "manual", price: 94 });
+    expect(day2.grades[0].realizedReturn).toBeCloseTo(-0.06, 12);
+  });
+});

@@ -58,7 +58,8 @@ export default async function SignalTrader() {
       <section className="st-section">
         <h2>Picks</h2>
         <p className="note">
-          Last 30 sessions. A pending pick fills at the next open; Cancel stops it. Pause holds both new
+          Last 30 sessions. A pending pick fills at the next open. Cancel and Close take effect at the next
+          open: a cancel pressed after a pick&apos;s fill open closes it there instead. Pause holds both new
           picks and fills (stops and window exits keep running); a held pick fills at the first open after you resume.
         </p>
         <div className="panel st-scroll">
@@ -73,12 +74,13 @@ export default async function SignalTrader() {
                   <td className="num">{p.windowDays}d</td>
                   <td className="num">{pc(p.expectedMove)}</td>
                   <td>
-                    {p.status === "pending" && (v.paused ? "Held — auto-trade paused" : "Pending — fills at the next open")}
+                    {p.status === "pending" && p.cancelRequestedAt && "Cancel requested — applies at the next open"}
+                    {p.status === "pending" && !p.cancelRequestedAt && (v.paused ? "Held — auto-trade paused" : "Pending — fills at the next open")}
                     {p.status === "open" && <>PAPER bought {p.entrySession} at {usd(p.entryPrice)}</>}
                     {p.status === "closed" && "Closed"}
                     {p.status === "cancelled" && <>Cancelled{p.note ? ` — ${p.note}` : ""}</>}
                   </td>
-                  <td>{p.status === "pending" && <CloseButton pickKey={p.key} label="Cancel" />}</td>
+                  <td>{p.status === "pending" && !p.cancelRequestedAt && <CloseButton pickKey={p.key} label="Cancel" />}</td>
                 </tr>
               ))}
             </tbody>

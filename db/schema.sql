@@ -298,3 +298,6 @@ CREATE TABLE IF NOT EXISTS st_pause_log (
   at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   paused BOOLEAN NOT NULL
 );
+-- When the user pressed Cancel on a pending pick. Judged at the next open by
+-- the engine: before the fill's open it cancels; after it, it closes next open.
+ALTER TABLE st_picks ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMPTZ;
