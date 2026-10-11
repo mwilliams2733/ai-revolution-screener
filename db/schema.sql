@@ -291,3 +291,10 @@ CREATE TABLE IF NOT EXISTS st_runs (
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
   status TEXT, note TEXT
 );
+-- Every pause/resume with its time. Fills are held only if the account was
+-- paused at that session's open (lib/signal-trader/engine.ts pausedAt).
+CREATE TABLE IF NOT EXISTS st_pause_log (
+  id     BIGSERIAL PRIMARY KEY,
+  at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paused BOOLEAN NOT NULL
+);

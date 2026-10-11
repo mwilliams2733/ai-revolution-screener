@@ -17,7 +17,7 @@ function book(spec: Record<string, Record<string, BarSpec>>) {
   };
 }
 
-const empty: EngineState = { cash: 100000, paused: false, pending: [], open: [] };
+const empty: EngineState = { cash: 100000, paused: false, pauseLog: [], pending: [], open: [] };
 
 function pick(over: Partial<PendingPick> = {}): PendingPick {
   return {
@@ -203,12 +203,14 @@ describe("splits", () => {
 describe("pause", () => {
   it("holds a pending pick while paused, and fills it once resumed", () => {
     const bars = book({ NVDA: { [S[1]]: { open: 100 }, [S[2]]: { open: 102 } } });
-    const paused = advanceSession({ ...empty, paused: true, pending: [pick()] }, ctx(S[1], LATE(S[1]), bars));
+    const log = [{ at: EARLY(S[0]).toISOString(), paused: true }];
+    const paused = advanceSession({ ...empty, paused: true, pauseLog: log, pending: [pick()] }, ctx(S[1], LATE(S[1]), bars));
     expect(paused.opened).toHaveLength(0);
     expect(paused.state.pending).toHaveLength(1);
     expect(paused.state.cash).toBe(100000);
     expect(paused.notes.some((n) => n.includes("paused"))).toBe(true);
-    const resumed = advanceSession({ ...paused.state, paused: false }, ctx(S[2], LATE(S[2]), bars));
+    const resumedLog = [...log, { at: EARLY(S[2]).toISOString(), paused: false }];
+    const resumed = advanceSession({ ...paused.state, paused: false, pauseLog: resumedLog }, ctx(S[2], LATE(S[2]), bars));
     expect(resumed.opened[0]).toMatchObject({ entryPrice: 102, entrySession: S[2] });
   });
 
@@ -216,5 +218,27 @@ describe("pause", () => {
     const open = { key: "k", ticker: "NVDA", signal: "vol_spike" as const, qty: 10, entryPrice: 100, entrySession: S[1], stopPrice: 92, sessionsHeld: 1, windowDays: 10, expectedMove: 0.0234, closeRequestedAt: null };
     const out = advanceSession({ ...empty, paused: true, open: [open] }, ctx(S[2], LATE(S[2]), book({ NVDA: { [S[2]]: { open: 90, low: 88, close: 93 } } })));
     expect(out.exits[0]).toMatchObject({ reason: "stop_gap" });
+  });
+});
+
+describe("pause is judged at each open, not when the job runs", () => {
+  const bars = book({ NVDA: { [S[1]]: { open: 100 } } });
+  // S[1] opens 13:30Z. EARLY = 12:45Z (before), LATE = 15:00Z (after).
+
+  it("holds a fill when paused at the open, even if resumed before the job ran", () => {
+    const out = advanceSession(
+      { ...empty, paused: false, pending: [pick()], pauseLog: [{ at: EARLY(S[1]).toISOString(), paused: true }, { at: LATE(S[1]).toISOString(), paused: false }] },
+      ctx(S[1], LATE(S[2]), bars),
+    );
+    expect(out.opened).toHaveLength(0);
+    expect(out.state.pending).toHaveLength(1);
+  });
+
+  it("fills when not paused at the open, even if paused before the job ran", () => {
+    const out = advanceSession(
+      { ...empty, paused: true, pending: [pick()], pauseLog: [{ at: LATE(S[1]).toISOString(), paused: true }] },
+      ctx(S[1], LATE(S[2]), bars),
+    );
+    expect(out.opened[0]).toMatchObject({ entryPrice: 100, entrySession: S[1] });
   });
 });

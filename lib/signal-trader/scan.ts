@@ -87,7 +87,7 @@ export function contextFor(
 }
 
 export function startState(cfg: StConfig = ST_CONFIG): EngineState {
-  return { cash: cfg.sizing.starting_cash, paused: false, pending: [], open: [] };
+  return { cash: cfg.sizing.starting_cash, paused: false, pauseLog: [], pending: [], open: [] };
 }
 
 export function replay(

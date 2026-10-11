@@ -9,7 +9,7 @@
  */
 import { neon } from "@neondatabase/serverless";
 import { ST_CONFIG } from "./config";
-import type { EngineState, Grade, OpenPosition, PendingPick, SessionOutcome } from "./engine";
+import type { EngineState, Grade, OpenPosition, PauseChange, PendingPick, SessionOutcome } from "./engine";
 import type { SignalName } from "./config";
 import type { Bar } from "./types";
 
@@ -35,6 +35,7 @@ export async function ensureSchema(): Promise<void> {
   await sql`CREATE TABLE IF NOT EXISTS st_marks (pick_key TEXT NOT NULL, session DATE NOT NULL, price DOUBLE PRECISION NOT NULL, PRIMARY KEY (pick_key, session))`;
   await sql`CREATE TABLE IF NOT EXISTS st_grades (pick_key TEXT PRIMARY KEY, signal TEXT NOT NULL, ticker TEXT NOT NULL, entry_session DATE NOT NULL, exit_session DATE NOT NULL, realized_return DOUBLE PRECISION NOT NULL, spy_return DOUBLE PRECISION, excess_return DOUBLE PRECISION, hit BOOLEAN NOT NULL, pnl DOUBLE PRECISION NOT NULL, expected_move DOUBLE PRECISION NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS st_runs (id BIGSERIAL PRIMARY KEY, job TEXT NOT NULL, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ, status TEXT, note TEXT)`;
+  await sql`CREATE TABLE IF NOT EXISTS st_pause_log (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), paused BOOLEAN NOT NULL)`;
   await sql`INSERT INTO st_account (id, cash, paused) VALUES (1, ${ST_CONFIG.sizing.starting_cash}, false) ON CONFLICT (id) DO NOTHING`;
   schemaReady = true;
 }
@@ -83,10 +84,12 @@ export async function loadState(): Promise<EngineState> {
            sessions_held, window_days, expected_move, close_requested_at
     FROM st_positions WHERE status = 'open' ORDER BY entry_session, pick_key
   `) as { pick_key: string; ticker: string; signal: SignalName; qty: unknown; entry_price: unknown; entry_session: string; stop_price: unknown; sessions_held: unknown; window_days: unknown; expected_move: unknown; close_requested_at: Date | string | null }[];
+  const log = (await sql`SELECT at, paused FROM st_pause_log ORDER BY at, id`) as { at: Date | string; paused: boolean }[];
   const iso = (d: Date | string) => new Date(d).toISOString();
   return {
     cash: n(acct.cash),
     paused: acct.paused,
+    pauseLog: log.map((r): PauseChange => ({ at: iso(r.at), paused: r.paused })),
     pending: pending.map((p): PendingPick => ({
       key: p.pick_key, ticker: p.ticker, signal: p.signal, decidedSession: p.decided_session,
       createdAt: iso(p.created_at), windowDays: n(p.window_days), expectedMove: n(p.expected_move),
@@ -160,9 +163,18 @@ export async function persistSession(o: SessionOutcome, note: string): Promise<v
   await sql.transaction(q);
 }
 
+/**
+ * Set the pause flag and log the change with its time, atomically. The flag
+ * decides new picks; the log decides whether each past open's fills are held
+ * (engine.ts pausedAt), so a toggle can never act on an open already traded.
+ */
 export async function setPaused(paused: boolean): Promise<void> {
   await ensureSchema();
-  await client()`UPDATE st_account SET paused = ${paused} WHERE id = 1`;
+  const sql = client();
+  await sql.transaction([
+    sql`UPDATE st_account SET paused = ${paused} WHERE id = 1`,
+    sql`INSERT INTO st_pause_log (paused) VALUES (${paused})`,
+  ]);
 }
 
 /** Cancel a pick that has not filled; otherwise ask for a close at the next open. */

@@ -40,9 +40,30 @@ export interface OpenPosition {
   readonly closeRequestedAt: string | null;
 }
 
+/** One pause or resume, as the user pressed it. */
+export interface PauseChange {
+  readonly at: string;
+  readonly paused: boolean;
+}
+
+/**
+ * Was auto-trade paused at `instant`? The latest change at or before it wins;
+ * no change yet means not paused. Fills are judged at their open, never by
+ * the flag when the job happens to run, or a pause or resume pressed after
+ * seeing the day's prices would rewrite a fill that already happened.
+ */
+export function pausedAt(log: readonly PauseChange[], instant: number): boolean {
+  let paused = false;
+  for (const c of log) if (Date.parse(c.at) <= instant) paused = c.paused;
+  return paused;
+}
+
 export interface EngineState {
   readonly cash: number;
+  /** Current flag: decides whether THIS run creates new picks. */
   readonly paused: boolean;
+  /** Every pause/resume, oldest first: decides whether a fill at a past open is held. */
+  readonly pauseLog: readonly PauseChange[];
   readonly pending: readonly PendingPick[];
   readonly open: readonly OpenPosition[];
 }
@@ -122,9 +143,9 @@ export function advanceSession(
     }
     // Pause holds fills as well as new picks (owner, 2026-10-10). Open
     // positions are still managed: stops and window exits keep running.
-    if (state.paused) {
+    if (pausedAt(state.pauseLog, openAt)) {
       pending.push(p);
-      notes.push(`${p.key}: held, auto-trade paused`);
+      notes.push(`${p.key}: held, auto-trade was paused at the ${session} open`);
       continue;
     }
     const bar = ctx.barOf(p.ticker, session);
@@ -229,6 +250,6 @@ export function advanceSession(
 
   return {
     session, fills, opened, exits, grades, marks, newPicks, cancelled, signals, notes,
-    state: { cash, paused: state.paused, pending, open: still },
+    state: { cash, paused: state.paused, pauseLog: state.pauseLog, pending, open: still },
   };
 }
