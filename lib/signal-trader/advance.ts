@@ -8,7 +8,8 @@
  */
 import { ST_CONFIG } from "./config";
 import { advanceSession } from "./engine";
-import { buildMarket, contextFor } from "./scan";
+import { splitHistory } from "../db";
+import { buildMarket, contextFor, splitFactors } from "./scan";
 import {
   finishRun, loadState, loadUniverseBars, persistSession, processedSessions, startRun, storedSessionsAsc,
 } from "./store";
@@ -20,11 +21,11 @@ export interface AdvanceReport {
   readonly note: string;
 }
 
-export async function backlog(): Promise<{ todo: string[]; latestStored: string | null; lastProcessed: string | null }> {
+export async function backlog(): Promise<{ todo: string[]; stored: string[]; latestStored: string | null; lastProcessed: string | null }> {
   const [stored, done] = await Promise.all([storedSessionsAsc(), processedSessions()]);
   const todo = stored.filter((s) => s >= ST_CONFIG.job.live_start && !done.has(s));
   const processed = [...done].sort();
-  return { todo, latestStored: stored.at(-1) ?? null, lastProcessed: processed.at(-1) ?? null };
+  return { todo, stored, latestStored: stored.at(-1) ?? null, lastProcessed: processed.at(-1) ?? null };
 }
 
 export async function runAdvance(opts: { now?: Date; dryRun?: boolean } = {}): Promise<AdvanceReport> {
@@ -32,7 +33,7 @@ export async function runAdvance(opts: { now?: Date; dryRun?: boolean } = {}): P
   const dryRun = opts.dryRun ?? false;
   const runId = dryRun ? null : await startRun("advance");
   try {
-    const { todo } = await backlog();
+    const { todo, stored } = await backlog();
     const batch = todo.slice(0, ST_CONFIG.job.max_sessions_per_run);
     if (batch.length === 0) {
       const report = { dryRun, processed: [], remaining: 0, note: "nothing to do: no settled session is waiting" };
@@ -40,10 +41,15 @@ export async function runAdvance(opts: { now?: Date; dryRun?: boolean } = {}): P
       return report;
     }
     const market = buildMarket(await loadUniverseBars(ST_CONFIG.universe));
+    // Bars are split-adjusted; positions are not. A failed read here must stop
+    // the run: trading through a split without it books a fake stop-out.
+    const splits = await splitHistory();
     let state = await loadState();
     const processed: AdvanceReport["processed"] = [];
     for (const s of batch) {
-      const out = advanceSession(state, contextFor(market, s, now));
+      const previous = stored[stored.indexOf(s) - 1] ?? null;
+      const factors = splitFactors(splits, previous, s);
+      const out = advanceSession(state, contextFor(market, s, now, ST_CONFIG, factors));
       if (!dryRun) await persistSession(out, out.notes.join(" | "));
       processed.push({ session: s, picks: out.newPicks.length, fills: out.fills.length, exits: out.exits.length, notes: out.notes });
       state = out.state;

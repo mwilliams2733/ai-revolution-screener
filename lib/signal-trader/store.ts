@@ -118,10 +118,15 @@ export async function persistSession(o: SessionOutcome, note: string): Promise<v
       INSERT INTO st_fills (pick_key, side, session, qty, price, note)
       VALUES (${f.key}, ${f.side}, ${f.session}::date, ${f.qty}, ${f.price}, ${f.note})`),
     ...o.marks.map((m) => sql`INSERT INTO st_marks (pick_key, session, price) VALUES (${m.key}, ${m.session}::date, ${m.price})`),
-    ...o.state.open.map((p) => sql`UPDATE st_positions SET sessions_held = ${p.sessionsHeld} WHERE pick_key = ${p.key}`),
+    // qty, entry and stop too: a split restates all three (engine.ts).
+    ...o.state.open.map((p) => sql`
+      UPDATE st_positions SET sessions_held = ${p.sessionsHeld}, qty = ${p.qty},
+        entry_price = ${p.entryPrice}, stop_price = ${p.stopPrice}
+      WHERE pick_key = ${p.key}`),
     ...o.exits.map((e) => sql`
       UPDATE st_positions SET status = 'closed', exit_price = ${e.price}, exit_session = ${e.session}::date,
-        exit_reason = ${e.reason}, realized_return = ${e.realizedReturn}
+        exit_reason = ${e.reason}, realized_return = ${e.realizedReturn},
+        qty = ${e.qty}, entry_price = ${e.entryPrice}
       WHERE pick_key = ${e.key}`),
     ...o.exits.map((e) => sql`UPDATE st_picks SET status = 'closed' WHERE pick_key = ${e.key}`),
     ...o.grades.map((g: Grade) => sql`

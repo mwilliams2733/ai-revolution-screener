@@ -49,7 +49,7 @@ export interface EngineState {
 export type ExitReason = "window" | "stop" | "stop_gap" | "manual";
 
 export interface Fill { readonly key: string; readonly session: string; readonly side: "buy" | "sell"; readonly qty: number; readonly price: number; readonly note: string }
-export interface Exit { readonly key: string; readonly ticker: string; readonly signal: SignalName; readonly session: string; readonly price: number; readonly reason: ExitReason; readonly realizedReturn: number; readonly pnl: number }
+export interface Exit { readonly key: string; readonly ticker: string; readonly signal: SignalName; readonly session: string; readonly price: number; readonly reason: ExitReason; readonly realizedReturn: number; readonly pnl: number; readonly qty: number; readonly entryPrice: number }
 export interface Grade {
   readonly key: string; readonly signal: SignalName; readonly ticker: string;
   readonly entrySession: string; readonly exitSession: string;
@@ -66,6 +66,13 @@ export interface SessionContext {
   readonly barOf: (ticker: string, session: string) => Bar | undefined;
   /** Signals firing on this session's close, per ticker, in config order. */
   readonly fired: ReadonlyMap<string, readonly SignalName[]>;
+  /**
+   * Price factor (split_from / split_to) for splits that took effect at this
+   * session's open, per ticker: 0.5 for a 2-for-1. Bars are split-adjusted, so
+   * a position bought before the split must be restated on the new basis or
+   * its first post-split open reads as a gap through the stop.
+   */
+  readonly splits?: ReadonlyMap<string, number>;
 }
 
 export interface SessionOutcome {
@@ -137,7 +144,13 @@ export function advanceSession(
 
   // 2. Exits and marks.
   const still: OpenPosition[] = [];
-  for (const p of open) {
+  for (const pos of open) {
+    const factor = ctx.splits?.get(pos.ticker);
+    const p =
+      factor && pos.entrySession < session
+        ? { ...pos, qty: pos.qty / factor, entryPrice: pos.entryPrice * factor, stopPrice: pos.stopPrice * factor }
+        : pos;
+    if (p !== pos) notes.push(`${p.ticker}: split at ${session} open (price x${factor}); ${p.key} restated`);
     const bar = ctx.barOf(p.ticker, session);
     if (!bar) {
       still.push(p);
@@ -166,7 +179,7 @@ export function advanceSession(
     const pnl = proceeds - p.qty * p.entryPrice;
     const realizedReturn = exit.price / p.entryPrice - 1;
     fills.push({ key: p.key, session, side: "sell", qty: p.qty, price: exit.price, note: `PAPER sell (${exit.reason})` });
-    exits.push({ key: p.key, ticker: p.ticker, signal: p.signal, session, price: exit.price, reason: exit.reason, realizedReturn, pnl });
+    exits.push({ key: p.key, ticker: p.ticker, signal: p.signal, session, price: exit.price, reason: exit.reason, realizedReturn, pnl, qty: p.qty, entryPrice: p.entryPrice });
     const spyIn = ctx.barOf(cfg.benchmark, p.entrySession)?.open;
     const spyOut = ctx.barOf(cfg.benchmark, session)?.close;
     const spyReturn = spyIn && spyOut ? spyOut / spyIn - 1 : null;

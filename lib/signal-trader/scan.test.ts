@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMarket, contextFor, replay, signalsFiring, startState } from "./scan";
+import { buildMarket, contextFor, replay, signalsFiring, splitFactors, startState } from "./scan";
 import { advanceSession } from "./engine";
 import type { Bar } from "./types";
 
@@ -60,5 +60,25 @@ describe("scan", () => {
     const { outcomes } = replay(m, days.slice(25, 40));
     const entries = outcomes.flatMap((o) => o.opened).filter((p) => p.ticker === "NVDA");
     expect(entries.map((p) => p.entrySession)).toEqual([days[31]]);
+  });
+});
+
+describe("splitFactors", () => {
+  const splits = new Map([
+    ["NVDA", [{ ticker: "NVDA", executionDate: "2026-07-08", from: 1, to: 10 }]],
+    ["TSLA", [{ ticker: "TSLA", executionDate: "2026-07-04", from: 1, to: 3 }]],
+  ]);
+
+  it("prices a split taking effect at this session's open as from/to", () => {
+    expect(splitFactors(splits, "2026-07-07", "2026-07-08")).toEqual(new Map([["NVDA", 0.1]]));
+  });
+
+  it("catches a split dated on a non-session between two sessions", () => {
+    // 07-04 is a holiday: the split first shows in 07-06's bar.
+    expect(splitFactors(splits, "2026-07-02", "2026-07-06").get("TSLA")).toBeCloseTo(1 / 3, 12);
+  });
+
+  it("applies nothing outside (previous, session]", () => {
+    expect(splitFactors(splits, "2026-07-08", "2026-07-09").size).toBe(0);
   });
 });

@@ -172,3 +172,30 @@ describe("scan", () => {
     expect(out.signals[0]).toMatchObject({ acted: false, note: "auto-trade paused" });
   });
 });
+
+describe("splits", () => {
+  const held = {
+    key: "k", ticker: "NVDA", signal: "vol_spike" as const, qty: 10, entryPrice: 100,
+    entrySession: S[1], stopPrice: 92, sessionsHeld: 1, windowDays: 10, expectedMove: 0.0234,
+    closeRequestedAt: null,
+  };
+
+  it("rescales qty, entry and stop on a 2-for-1 split instead of stopping out", () => {
+    const out = advanceSession(
+      { ...empty, open: [held] },
+      { ...ctx(S[2], LATE(S[2]), book({ NVDA: { [S[2]]: { open: 51, low: 50, close: 52 } } })), splits: new Map([["NVDA", 0.5]]) },
+    );
+    expect(out.exits).toHaveLength(0);
+    expect(out.state.open[0]).toMatchObject({ qty: 20, entryPrice: 50, stopPrice: 46 });
+    expect(out.marks[0]).toMatchObject({ price: 52 });
+    expect(out.notes.some((n) => n.includes("split"))).toBe(true);
+  });
+
+  it("leaves a position bought at this session's post-split open alone", () => {
+    const out = advanceSession(
+      { ...empty, open: [{ ...held, entrySession: S[2], qty: 20, entryPrice: 50, stopPrice: 46 }] },
+      { ...ctx(S[2], LATE(S[2]), book({ NVDA: { [S[2]]: { open: 50, low: 49, close: 51 } } })), splits: new Map([["NVDA", 0.5]]) },
+    );
+    expect(out.state.open[0]).toMatchObject({ qty: 20, entryPrice: 50 });
+  });
+});
