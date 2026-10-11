@@ -24,6 +24,7 @@
  * with an older execution date is never done at all.
  */
 
+import { isoDaysAgo } from "../lib/dates";
 import { neon } from "@neondatabase/serverless";
 import { tickerBars } from "../lib/polygon";
 import {
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
     tickersWithBars(),
   ]);
   const all: Split[] = [...bySymbol.values()].flat();
-  const pending = pendingRefetches(all, handled, held);
+  const pending = pendingRefetches(all, handled, held, isoDaysAgo(0));
   const targets = refetchTargets(pending);
 
   // The stored calendar bounds the work: a repair must not widen it, or one

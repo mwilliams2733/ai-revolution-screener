@@ -41,5 +41,5 @@ export async function splitBacklog() {
     handledSplits(),
     tickersWithBars(),
   ]);
-  return pendingRefetches([...allSplits.values()].flat(), handled, held);
+  return pendingRefetches([...allSplits.values()].flat(), handled, held, isoDaysAgo(0));
 }

@@ -113,9 +113,15 @@ export function pendingRefetches(
   splits: readonly Split[],
   handled: ReadonlySet<string>,
   held: ReadonlySet<string>,
+  /**
+   * Today (yyyy-mm-dd). Only splits dated BEFORE it are due: repairing an
+   * announced split before it executes re-fetches the old basis and marks it
+   * handled, so the real restatement is never repaired.
+   */
+  asOf: string,
 ): Split[] {
   return splits
-    .filter((s) => held.has(s.ticker) && !handled.has(splitKey(s)))
+    .filter((s) => s.executionDate < asOf && held.has(s.ticker) && !handled.has(splitKey(s)))
     .sort((a, b) => Date.parse(a.executionDate) - Date.parse(b.executionDate));
 }
 

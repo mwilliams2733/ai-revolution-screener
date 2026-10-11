@@ -172,9 +172,10 @@ describe("pendingRefetches", () => {
     split("CCC", "2026-04-01", 1, 4),
   ];
   const held = new Set(["AAA", "BBB"]);
+  const LATER = "2099-01-01";
 
   it("returns work for tickers we hold bars for", () => {
-    const out = pendingRefetches(splits, new Set(), held);
+    const out = pendingRefetches(splits, new Set(), held, LATER);
     expect(out.map(splitKey)).toEqual([
       "AAA|2026-02-01",
       "BBB|2026-03-01",
@@ -183,7 +184,7 @@ describe("pendingRefetches", () => {
   });
 
   it("skips splits already handled", () => {
-    const out = pendingRefetches(splits, new Set(["AAA|2026-02-01"]), held);
+    const out = pendingRefetches(splits, new Set(["AAA|2026-02-01"]), held, LATER);
     expect(out.map(splitKey)).toEqual(["BBB|2026-03-01", "AAA|2026-05-01"]);
   });
 
@@ -193,17 +194,28 @@ describe("pendingRefetches", () => {
    * split discovered later as already handled and skip it forever.
    */
   it("still returns an older split discovered after a newer one was handled", () => {
-    const out = pendingRefetches(splits, new Set(["AAA|2026-05-01"]), held);
+    const out = pendingRefetches(splits, new Set(["AAA|2026-05-01"]), held, LATER);
     expect(out.map(splitKey)).toContain("AAA|2026-02-01");
   });
 
   it("ignores tickers we store no bars for", () => {
-    expect(pendingRefetches(splits, new Set(), held).some((s) => s.ticker === "CCC")).toBe(false);
+    expect(pendingRefetches(splits, new Set(), held, LATER).some((s) => s.ticker === "CCC")).toBe(false);
   });
 
   it("is empty when everything is done", () => {
     const all = new Set(splits.map(splitKey));
-    expect(pendingRefetches(splits, all, held)).toEqual([]);
+    expect(pendingRefetches(splits, all, held, LATER)).toEqual([]);
+  });
+
+  /**
+   * Repairing before the split executes re-fetches history on the OLD basis and
+   * then records the split as handled, so the real restatement is never picked
+   * up. Ten splits were handled early this way (DPU's 2026-12-17 split was
+   * "handled" on 2026-08-26). Only splits dated before today are due.
+   */
+  it("never returns a split that has not executed yet", () => {
+    const out = pendingRefetches(splits, new Set(), held, "2026-03-01");
+    expect(out.map(splitKey)).toEqual(["AAA|2026-02-01"]);
   });
 });
 
