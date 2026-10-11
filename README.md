@@ -388,6 +388,11 @@ leg could never fill.
 A pick created after a session's 09:30 New York open waits for the next open. It
 never fills at a price the decision could not have traded.
 
+**Pause** holds both new picks (signals are still logged) and fills of pending
+picks. Open positions keep being managed: stops and window exits still run. A
+held pick fills at the first open after resume, which can be well after its
+signal.
+
 **Schedule.** `/api/signal-trader/advance` runs at 12:45 UTC with a 13:15 UTC
 retry, after the 12:00 refresh and before the earliest open. Both Vercel cron and
 the GitHub backup fire it. The backup first asks `/advance/status` and skips if

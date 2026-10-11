@@ -2,7 +2,8 @@
  * The paper engine: advance paper state by ONE settled session. Pure.
  *
  * Order inside a session matters and mirrors the clock:
- *   1. fill pending picks at this session's open, if decided before it opened;
+ *   1. fill pending picks at this session's open, if decided before it opened
+ *      and auto-trade is not paused (pause holds fills too);
  *   2. exits and marks on this session's bar (manual close, gap through the
  *      stop, intraday stop, window end), else mark at the close;
  *   3. scan this session's close for new picks, which fill at a LATER open.
@@ -117,6 +118,13 @@ export function advanceSession(
   for (const p of state.pending) {
     if (p.decidedSession >= session || Date.parse(p.createdAt) >= openAt) {
       pending.push(p);
+      continue;
+    }
+    // Pause holds fills as well as new picks (owner, 2026-10-10). Open
+    // positions are still managed: stops and window exits keep running.
+    if (state.paused) {
+      pending.push(p);
+      notes.push(`${p.key}: held, auto-trade paused`);
       continue;
     }
     const bar = ctx.barOf(p.ticker, session);

@@ -199,3 +199,22 @@ describe("splits", () => {
     expect(out.state.open[0]).toMatchObject({ qty: 20, entryPrice: 50 });
   });
 });
+
+describe("pause", () => {
+  it("holds a pending pick while paused, and fills it once resumed", () => {
+    const bars = book({ NVDA: { [S[1]]: { open: 100 }, [S[2]]: { open: 102 } } });
+    const paused = advanceSession({ ...empty, paused: true, pending: [pick()] }, ctx(S[1], LATE(S[1]), bars));
+    expect(paused.opened).toHaveLength(0);
+    expect(paused.state.pending).toHaveLength(1);
+    expect(paused.state.cash).toBe(100000);
+    expect(paused.notes.some((n) => n.includes("paused"))).toBe(true);
+    const resumed = advanceSession({ ...paused.state, paused: false }, ctx(S[2], LATE(S[2]), bars));
+    expect(resumed.opened[0]).toMatchObject({ entryPrice: 102, entrySession: S[2] });
+  });
+
+  it("still manages open positions while paused", () => {
+    const open = { key: "k", ticker: "NVDA", signal: "vol_spike" as const, qty: 10, entryPrice: 100, entrySession: S[1], stopPrice: 92, sessionsHeld: 1, windowDays: 10, expectedMove: 0.0234, closeRequestedAt: null };
+    const out = advanceSession({ ...empty, paused: true, open: [open] }, ctx(S[2], LATE(S[2]), book({ NVDA: { [S[2]]: { open: 90, low: 88, close: 93 } } })));
+    expect(out.exits[0]).toMatchObject({ reason: "stop_gap" });
+  });
+});

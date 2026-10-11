@@ -57,7 +57,10 @@ export default async function SignalTrader() {
 
       <section className="st-section">
         <h2>Picks</h2>
-        <p className="note">Last 30 sessions. A pending pick fills at the next open; Cancel stops it.</p>
+        <p className="note">
+          Last 30 sessions. A pending pick fills at the next open; Cancel stops it. Pause holds both new
+          picks and fills (stops and window exits keep running); a held pick fills at the first open after you resume.
+        </p>
         <div className="panel st-scroll">
           <table className="st-tbl">
             <thead><tr><th>Decided</th><th>Ticker</th><th>Signal</th><th className="num">Window</th><th className="num">Expected</th><th>Status</th><th></th></tr></thead>
@@ -70,7 +73,7 @@ export default async function SignalTrader() {
                   <td className="num">{p.windowDays}d</td>
                   <td className="num">{pc(p.expectedMove)}</td>
                   <td>
-                    {p.status === "pending" && "Pending — fills at the next open"}
+                    {p.status === "pending" && (v.paused ? "Held — auto-trade paused" : "Pending — fills at the next open")}
                     {p.status === "open" && <>PAPER bought {p.entrySession} at {usd(p.entryPrice)}</>}
                     {p.status === "closed" && "Closed"}
                     {p.status === "cancelled" && <>Cancelled{p.note ? ` — ${p.note}` : ""}</>}
