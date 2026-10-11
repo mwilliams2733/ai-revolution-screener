@@ -85,7 +85,8 @@ export default async function Page() {
           </p>
         )}
         <p className="subtitle">
-          <Link href="/history" className="tick">Top 10 history →</Link>
+          <Link href="/history" className="tick">Top 10 history →</Link>{" "}
+          <Link href="/signal-trader" className="tick">Signal Trader →</Link>
         </p>
         <p className="subtitle">
           Relative strength ranked across every liquid US name, then filtered to the AI

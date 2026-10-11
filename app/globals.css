@@ -1116,3 +1116,29 @@ tr.vetoed .rail-fill { background: var(--veto); }
   .ss-head.mg-stats,
   .ss-row.mg-stats { grid-template-columns: minmax(90px, 1.5fr) 40px 48px 100px; }
 }
+
+/* Signal Trader (app/signal-trader). Reuses masthead, panel, note, empty and
+   stale-banner; these rules cover only what is new. */
+.st-section { margin-top: 40px; }
+.st-section h2 { font-size: 1.05rem; margin: 0 0 6px; }
+.st-paper {
+  font-size: 0.6rem; letter-spacing: 0.08em; font-weight: 700; color: var(--warm);
+  border: 1px solid var(--warm); border-radius: 4px; padding: 1px 4px; vertical-align: middle;
+}
+.st-stats { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-top: 12px; }
+.st-scroll { overflow-x: auto; }
+.st-tbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.st-tbl th, .st-tbl td { padding: 8px 10px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.st-tbl thead th { border-top: 0; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.st-tbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.st-sub { display: block; font-size: 0.7rem; color: var(--muted); }
+.st-warn { color: var(--warm); }
+.st-control { display: inline-flex; gap: 8px; align-items: center; }
+.st-btn {
+  min-height: 40px; min-width: 44px; padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 0.8rem; cursor: pointer;
+}
+.st-btn:hover { border-color: var(--cool-mid); }
+.st-btn:disabled { opacity: 0.6; cursor: wait; }
+.st-btn-warn { border-color: var(--warm); color: var(--warm); }
+.st-error { font-size: 0.75rem; color: var(--veto); }
