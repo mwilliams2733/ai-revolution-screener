@@ -8,3 +8,6 @@ node_modules
 .next
 scratchpad
 *.tsbuildinfo
+
+# Research inputs: read by tests and scripts, never by the deployed app.
+research
