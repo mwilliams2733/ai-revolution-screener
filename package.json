@@ -18,6 +18,7 @@
     "refetch-splits": "tsx --env-file=.env.local scripts/refetch-splits.ts",
     "splits": "tsx --env-file=.env.local scripts/splits.ts",
     "health": "tsx --env-file=.env.local scripts/health.ts",
+    "signal-trader:revalidate": "tsx --env-file=.env.local scripts/signal-trader-revalidate.ts",
     "signal-trader:parity": "tsx --env-file=.env.local scripts/signal-trader-parity.ts",
     "signal-trader:advance": "tsx --env-file=.env.local scripts/signal-trader-advance.ts",
     "fundamentals": "tsx --env-file=.env.local scripts/fundamentals.ts",
