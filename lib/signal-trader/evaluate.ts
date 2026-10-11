@@ -191,3 +191,12 @@ export function excessMean(
     .filter((x): x is number => x !== null);
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 }
+
+/**
+ * Rows strictly after `session`. The shipped cutoffs were fit on the lab's
+ * training rows (through cutoffs.json `train_end`); scoring sessions inside
+ * that period re-measures the fit, not the signal.
+ */
+export function rowsAfter(rows: Row[], session: string): Row[] {
+  return rows.filter((r) => r.session > session);
+}

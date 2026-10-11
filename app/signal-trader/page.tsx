@@ -150,8 +150,10 @@ export default async function SignalTrader() {
       <section className="st-section">
         <h2>Lab</h2>
         <p className="note">
-          The ported engine on every stored session, with the shipped cutoffs. Does each signal still hold up
-          on this database&apos;s bars? Raw n overstates; read episodes and the date-clustered t.
+          The ported engine on this database&apos;s bars, scored only after the cutoffs&apos; training period
+          (after {ST_CONFIG.train_end}). Most of these sessions are also the lab&apos;s own test period, so this
+          checks the port on your data; it is not new evidence. New evidence is the Grading section above.
+          Raw n overstates; read episodes and the date-clustered t.
         </p>
         <div className="panel st-scroll">
           <table className="st-tbl">

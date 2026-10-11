@@ -41,6 +41,8 @@ export const ST_CONFIG = {
     live_start: "2026-10-08",
   },
   cutoffs: cutoffsFile.cutoffs as Cutoffs,
+  /** Last session in the cutoffs' training set; the Lab scores only after it. */
+  train_end: cutoffsFile.train_end,
 } as const;
 
 export type StConfig = typeof ST_CONFIG;

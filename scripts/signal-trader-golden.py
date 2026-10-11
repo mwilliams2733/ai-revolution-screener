@@ -64,6 +64,10 @@ def main():
     tr = feats[feats["is_train"]].reset_index(drop=True)
     te = feats[~feats["is_train"]].reset_index(drop=True)
 
+    # The last session ANY ticker contributes to training (splits are per
+    # ticker by row count): everything after it is outside every fit.
+    train_end = pd.Timestamp(tr["date"].max()).strftime("%Y-%m-%d")
+
     cutoffs = {}
     for col in lab.CONTINUOUS:
         x = tr[col].dropna()
@@ -90,6 +94,7 @@ def main():
     golden = {
         "as_of": AS_OF.isoformat(),
         "start": start.isoformat(),
+        "train_end": train_end,
         "tickers": sorted(TICKERS),
         "cutoffs": cutoffs,
         "check": {"vol_spike_10d_test_n": n},
@@ -99,11 +104,12 @@ def main():
         json.dump(golden, f, separators=(",", ":"))
     with open(os.path.join(ROOT, "lib", "signal-trader", "cutoffs.json"), "w") as f:
         json.dump({"as_of": AS_OF.isoformat(), "train_frac": TRAIN_FRAC,
+                   "train_end": train_end,
                    "source": "research/signal-lab", "cutoffs": cutoffs}, f, indent=2)
         f.write("\n")
     total = sum(len(v) for r in firings.values() for v in r.values())
     print(f"golden.json: {len(firings)} rules, {total} firings; vol_spike 10d test n = {n}")
-    print(f"start {start.isoformat()}  as_of {AS_OF.isoformat()}")
+    print(f"start {start.isoformat()}  as_of {AS_OF.isoformat()}  train_end {train_end}")
 
 
 if __name__ == "__main__":

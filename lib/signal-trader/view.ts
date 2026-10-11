@@ -4,7 +4,7 @@
  * cutoffs (not refit): do the configured signals still hold up?
  */
 import { ST_CONFIG, SIGNAL_NAMES, type SignalName } from "./config";
-import { buildPanel, clustered, excessMean, ruleFirings, stats } from "./evaluate";
+import { buildPanel, clustered, excessMean, rowsAfter, ruleFirings, stats } from "./evaluate";
 import { scoreSignals, type SignalScore } from "./grading";
 import { buildMarket } from "./scan";
 import {
@@ -47,11 +47,14 @@ export async function getSignalTraderView(): Promise<SignalTraderView> {
   const market = buildMarket(bars);
   const windows = [...new Set(SIGNAL_NAMES.map((n) => ST_CONFIG.signals[n].window_days))];
   const panel = buildPanel(bars, windows);
-  const spy = new Map(panel.rows.filter((r) => r.ticker === ST_CONFIG.benchmark).map((r) => [r.session, r.fwd]));
+  // Only sessions after the cutoffs' training period: scoring inside it would
+  // re-measure the fit rather than the signal.
+  const outOfFit = rowsAfter(panel.rows, ST_CONFIG.train_end);
+  const spy = new Map(outOfFit.filter((r) => r.ticker === ST_CONFIG.benchmark).map((r) => [r.session, r.fwd]));
   const lab: LabRow[] = SIGNAL_NAMES.map((signal) => {
     const spec = ST_CONFIG.signals[signal];
     const H = spec.window_days;
-    const f = ruleFirings(panel.rows, market.features, spec.rule, ST_CONFIG.cutoffs, H);
+    const f = ruleFirings(outOfFit, market.features, spec.rule, ST_CONFIG.cutoffs, H);
     const s = stats(f.map((r) => r.fwd[H]));
     const c = clustered(f, H, sessions);
     return { signal, label: spec.label, window: H, n: s.n, episodes: c.episodes, mean: s.mean, hit: s.hit, tDates: c.tDates, excess: excessMean(f, spy, H), expected: spec.expected_move };

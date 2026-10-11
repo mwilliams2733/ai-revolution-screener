@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  bonferroniT, buildPanel, clustered, fitCutoffs, quantile, ruleFirings, splitPanel, stats, type Row,
+  bonferroniT, buildPanel, clustered, fitCutoffs, quantile, rowsAfter, ruleFirings, splitPanel, stats, type Row,
 } from "./evaluate";
 import { LAB_DIR, readLabBars } from "./lab-data";
 import type { Bar } from "./types";
@@ -69,5 +69,13 @@ describe("helpers", () => {
     expect(c.episodes).toBe(2);
     // date means: d0 .03, d2 .01, d5 -.01 -> mean .01, sd .02, se .02/sqrt(3)
     expect(c.tDates).toBeCloseTo(0.01 / (0.02 / Math.sqrt(3)), 10);
+  });
+});
+
+describe("rowsAfter", () => {
+  it("keeps only rows strictly after the cutoffs' training period", () => {
+    const row = (session: string): Row => ({ ticker: "A", session, i: 0, fwd: {} });
+    const rows = [row("2025-03-10"), row("2025-03-11"), row("2025-03-12")];
+    expect(rowsAfter(rows, "2025-03-11").map((r) => r.session)).toEqual(["2025-03-12"]);
   });
 });
