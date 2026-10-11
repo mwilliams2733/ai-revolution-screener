@@ -35,6 +35,8 @@ on:
   schedule:
     - cron: "0 12 * * 1-5"   # 05:00 Phoenix - refresh
     - cron: "0 13 * * 1-5"   # 06:00 Phoenix - digest email
+    - cron: "45 12 * * 1-5"  # 05:45 Phoenix - signal trader
+    - cron: "15 13 * * 1-5"  # 06:15 Phoenix - signal trader retry
   workflow_dispatch:
     inputs:
       task:
@@ -42,7 +44,7 @@ on:
         required: true
         default: digest
         type: choice
-        options: [refresh, digest]
+        options: [refresh, digest, signal-trader]
 
 # The vercel.app alias, NOT the custom domain: Cloudflare Access fronts
 # screener.williamstradingplatform.com and answers 302 to anything without a
@@ -59,9 +61,15 @@ jobs:
         id: pick
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "path=/api/${{ inputs.task }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.task }}" = "signal-trader" ]; then
+              echo "path=/api/signal-trader/advance" >> "$GITHUB_OUTPUT"
+            else
+              echo "path=/api/${{ inputs.task }}" >> "$GITHUB_OUTPUT"
+            fi
           elif [ "${{ github.event.schedule }}" = "0 12 * * 1-5" ]; then
             echo "path=/api/refresh" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "45 12 * * 1-5" ] || [ "${{ github.event.schedule }}" = "15 13 * * 1-5" ]; then
+            echo "path=/api/signal-trader/advance" >> "$GITHUB_OUTPUT"
           else
             echo "path=/api/digest" >> "$GITHUB_OUTPUT"
           fi

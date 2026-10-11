@@ -27,7 +27,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_COOKIE, readAccessConfig, readToken, verifyAccess } from "@/lib/access";
 
 /** Paths that authenticate by shared secret rather than by Access identity. */
-const CRON_PATHS = ["/api/refresh", "/api/digest"];
+const CRON_PATHS = ["/api/refresh", "/api/digest", "/api/signal-trader/advance"];
 
 function deny(status: number, reason: string, detail?: string) {
   return NextResponse.json({ error: reason, detail }, { status });

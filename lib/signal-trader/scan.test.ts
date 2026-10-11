@@ -8,7 +8,7 @@ import type { Bar } from "./types";
  * index 30. Constant volume keeps every other rule quiet: vol_z is NaN while
  * the window has no variance, and flat prices give zero momentum and drift.
  */
-function flatWithSpike(ticker: string): Bar[] {
+function flatWithSpike(): Bar[] {
   const out: Bar[] = [];
   const day0 = Date.UTC(2026, 0, 5);
   for (let k = 0; k < 40; k++) {
@@ -20,7 +20,7 @@ function flatWithSpike(ticker: string): Bar[] {
 }
 
 const market = () =>
-  buildMarket(new Map([["NVDA", flatWithSpike("NVDA")], ["SPY", flatWithSpike("SPY")]]));
+  buildMarket(new Map([["NVDA", flatWithSpike()], ["SPY", flatWithSpike()]]));
 
 describe("scan", () => {
   it("fires vol_spike on the spike day only", () => {

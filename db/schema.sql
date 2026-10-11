@@ -235,3 +235,59 @@ CREATE TABLE IF NOT EXISTS market_band_tiers (
   band_tier TEXT,
   PRIMARY KEY (session, ticker)
 );
+
+-- Signal Trader (paper only). Created by lib/signal-trader/store.ts ensureSchema.
+-- One row per processed session; the PRIMARY KEY makes a second run for the
+-- same session roll back its whole transaction (idempotency).
+CREATE TABLE IF NOT EXISTS st_sessions (
+  session      DATE PRIMARY KEY,
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  note         TEXT
+);
+CREATE TABLE IF NOT EXISTS st_account (
+  id     INTEGER PRIMARY KEY CHECK (id = 1),
+  cash   DOUBLE PRECISION NOT NULL,
+  paused BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE IF NOT EXISTS st_signals (
+  session DATE NOT NULL, ticker TEXT NOT NULL, signal TEXT NOT NULL,
+  acted BOOLEAN NOT NULL, note TEXT,
+  PRIMARY KEY (session, ticker, signal)
+);
+CREATE TABLE IF NOT EXISTS st_picks (
+  pick_key TEXT PRIMARY KEY, decided_session DATE NOT NULL, ticker TEXT NOT NULL,
+  signal TEXT NOT NULL, window_days INTEGER NOT NULL, expected_move DOUBLE PRECISION NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL,               -- pending | open | closed | cancelled
+  note TEXT
+);
+CREATE TABLE IF NOT EXISTS st_positions (
+  pick_key TEXT PRIMARY KEY REFERENCES st_picks(pick_key), ticker TEXT NOT NULL,
+  signal TEXT NOT NULL, qty DOUBLE PRECISION NOT NULL, entry_price DOUBLE PRECISION NOT NULL,
+  entry_session DATE NOT NULL, stop_price DOUBLE PRECISION NOT NULL,
+  sessions_held INTEGER NOT NULL, window_days INTEGER NOT NULL,
+  expected_move DOUBLE PRECISION NOT NULL, close_requested_at TIMESTAMPTZ,
+  status TEXT NOT NULL,               -- open | closed
+  exit_price DOUBLE PRECISION, exit_session DATE, exit_reason TEXT, realized_return DOUBLE PRECISION
+);
+CREATE TABLE IF NOT EXISTS st_fills (
+  pick_key TEXT NOT NULL, side TEXT NOT NULL, session DATE NOT NULL,
+  qty DOUBLE PRECISION NOT NULL, price DOUBLE PRECISION NOT NULL, note TEXT,
+  PRIMARY KEY (pick_key, side)
+);
+CREATE TABLE IF NOT EXISTS st_marks (
+  pick_key TEXT NOT NULL, session DATE NOT NULL, price DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (pick_key, session)
+);
+CREATE TABLE IF NOT EXISTS st_grades (
+  pick_key TEXT PRIMARY KEY, signal TEXT NOT NULL, ticker TEXT NOT NULL,
+  entry_session DATE NOT NULL, exit_session DATE NOT NULL,
+  realized_return DOUBLE PRECISION NOT NULL, spy_return DOUBLE PRECISION,
+  excess_return DOUBLE PRECISION, hit BOOLEAN NOT NULL, pnl DOUBLE PRECISION NOT NULL,
+  expected_move DOUBLE PRECISION NOT NULL
+);
+CREATE TABLE IF NOT EXISTS st_runs (
+  id BIGSERIAL PRIMARY KEY, job TEXT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
+  status TEXT, note TEXT
+);
