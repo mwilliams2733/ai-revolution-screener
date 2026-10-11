@@ -10,6 +10,7 @@ import { ST_CONFIG } from "./config";
 import { advanceSession } from "./engine";
 import { splitHistory } from "../db";
 import { buildMarket, contextFor, splitFactors } from "./scan";
+import { refreshUniverseSplits } from "./splits-refresh";
 import {
   finishRun, isSessionClaimConflict, loadState, loadUniverseBars, persistSession, processedSessions, startRun, storedSessionsAsc,
 } from "./store";
@@ -41,8 +42,11 @@ export async function runAdvance(opts: { now?: Date; dryRun?: boolean } = {}): P
       return report;
     }
     const market = buildMarket(await loadUniverseBars(ST_CONFIG.universe));
-    // Bars are split-adjusted; positions are not. A failed read here must stop
-    // the run: trading through a split without it books a fake stop-out.
+    // Bars are split-adjusted; positions are not. Fetch recent splits for the
+    // universe first (nothing else keeps the table current), then read it. A
+    // failure in either stops the run: trading through a split it does not
+    // know about books a fake stop-out. A dry run reads only.
+    if (!dryRun) await refreshUniverseSplits();
     const splits = await splitHistory();
     let state = await loadState();
     const processed: AdvanceReport["processed"] = [];

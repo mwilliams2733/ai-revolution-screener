@@ -300,3 +300,28 @@ export function anchorDates(
     r12m: calendar[lookbacks.r12m],
   };
 }
+
+export interface PolygonSplit {
+  readonly ticker: string;
+  readonly execution_date: string;
+  readonly split_from: number;
+  readonly split_to: number;
+}
+
+/**
+ * Every split executing on or after `fromDate`, including ones announced for
+ * the future. Paginated; a failure throws (a 403 immediately) rather than
+ * returning a partial list a caller would mistake for "no splits".
+ */
+export async function splitsSince(fromDate: string, opts: FetchOptions = {}): Promise<PolygonSplit[]> {
+  const out: PolygonSplit[] = [];
+  let path: string | null =
+    `/v3/reference/splits?execution_date.gte=${fromDate}&order=asc&sort=execution_date&limit=1000`;
+  while (path) {
+    const body: { results?: PolygonSplit[]; next_url?: string } = await get(path, opts);
+    out.push(...(body.results ?? []));
+    // next_url is absolute and carries the cursor but not the key; get() adds it.
+    path = body.next_url ? new URL(body.next_url).pathname + new URL(body.next_url).search : null;
+  }
+  return out;
+}

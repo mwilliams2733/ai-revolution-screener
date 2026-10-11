@@ -106,6 +106,33 @@ export async function companyHealth(): Promise<Map<string, HealthFacts>> {
  * Required before any year-on-year share-count comparison: cover-page counts
  * are never restated, so a 10-for-1 reads as +900% dilution.
  */
+/** Upsert splits (same table and conflict rule as scripts/splits.ts). */
+export async function upsertSplits(rows: readonly Split[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const sql = client();
+  await sql`
+    CREATE TABLE IF NOT EXISTS splits (
+      ticker         TEXT NOT NULL,
+      execution_date DATE NOT NULL,
+      split_from     DOUBLE PRECISION NOT NULL,
+      split_to       DOUBLE PRECISION NOT NULL,
+      PRIMARY KEY (ticker, execution_date)
+    )
+  `;
+  await sql`
+    INSERT INTO splits (ticker, execution_date, split_from, split_to)
+    SELECT * FROM UNNEST(
+      ${rows.map((s) => s.ticker)}::text[],
+      ${rows.map((s) => s.executionDate)}::date[],
+      ${rows.map((s) => s.from)}::float8[],
+      ${rows.map((s) => s.to)}::float8[]
+    ) AS t(ticker, execution_date, split_from, split_to)
+    ON CONFLICT (ticker, execution_date) DO UPDATE SET
+      split_from = EXCLUDED.split_from, split_to = EXCLUDED.split_to
+  `;
+  return rows.length;
+}
+
 export async function splitHistory(): Promise<Map<string, Split[]>> {
   const sql = client();
   const rows = (await sql`
