@@ -11,7 +11,7 @@ import { advanceSession } from "./engine";
 import { splitHistory } from "../db";
 import { buildMarket, contextFor, splitFactors } from "./scan";
 import {
-  finishRun, loadState, loadUniverseBars, persistSession, processedSessions, startRun, storedSessionsAsc,
+  finishRun, isSessionClaimConflict, loadState, loadUniverseBars, persistSession, processedSessions, startRun, storedSessionsAsc,
 } from "./store";
 
 export interface AdvanceReport {
@@ -50,7 +50,19 @@ export async function runAdvance(opts: { now?: Date; dryRun?: boolean } = {}): P
       const previous = stored[stored.indexOf(s) - 1] ?? null;
       const factors = splitFactors(splits, previous, s);
       const out = advanceSession(state, contextFor(market, s, now, ST_CONFIG, factors));
-      if (!dryRun) await persistSession(out, out.notes.join(" | "));
+      if (!dryRun) {
+        try {
+          await persistSession(out, out.notes.join(" | "));
+        } catch (e) {
+          if (!isSessionClaimConflict(e)) throw e;
+          // Another run (cron vs backup) got here first and persisted this
+          // session; its state is now the truth, so stop rather than continue
+          // from ours.
+          const note = `${s} was already processed by another run; stopped`;
+          if (runId !== null) await finishRun(runId, "ok", note);
+          return { dryRun, processed, remaining: todo.length - processed.length, note };
+        }
+      }
       processed.push({ session: s, picks: out.newPicks.length, fills: out.fills.length, exits: out.exits.length, notes: out.notes });
       state = out.state;
     }

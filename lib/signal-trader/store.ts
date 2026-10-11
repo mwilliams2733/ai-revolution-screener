@@ -100,6 +100,17 @@ export async function loadState(): Promise<EngineState> {
   };
 }
 
+/**
+ * True when a write failed only because another run already claimed this
+ * session in st_sessions -- the Vercel cron and the GitHub backup racing.
+ * The session WAS persisted, by the winner; nothing failed.
+ */
+export function isSessionClaimConflict(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const { code, constraint } = e as Error & { code?: string; constraint?: string };
+  return code === "23505" && (constraint === "st_sessions_pkey" || e.message.includes("st_sessions_pkey"));
+}
+
 export async function persistSession(o: SessionOutcome, note: string): Promise<void> {
   await ensureSchema();
   const sql = client();
