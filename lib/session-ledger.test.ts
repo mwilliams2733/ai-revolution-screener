@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifySession, sessionsNeedingFetch, sessionsToFetch, settledSessions, settleInstant } from "./session-ledger";
+import { classifySession, sessionsNeedingFetch, sessionsToFetch, settledSessions, settleInstant, marketOpenInstant, nyInstant } from "./session-ledger";
 
 describe("classifySession", () => {
   it("stores a session that returned bars", () => {
@@ -114,5 +114,16 @@ describe("sessionsNeedingFetch", () => {
   it("leaves alone a session fetched after it settled", () => {
     const fetched = new Map(cal.map((d) => [d, new Date(`${d}T23:30:00Z`)] as const));
     expect(sessionsNeedingFetch(cal, fetched)).toEqual([]);
+  });
+});
+
+describe("marketOpenInstant", () => {
+  it("is 09:30 New York: 13:30 UTC in summer, 14:30 UTC in winter", () => {
+    expect(marketOpenInstant("2026-07-15").toISOString()).toBe("2026-07-15T13:30:00.000Z");
+    expect(marketOpenInstant("2026-12-15").toISOString()).toBe("2026-12-15T14:30:00.000Z");
+  });
+
+  it("settleInstant is nyInstant at 18:00", () => {
+    expect(settleInstant("2026-07-15").getTime()).toBe(nyInstant("2026-07-15", 18).getTime());
   });
 });

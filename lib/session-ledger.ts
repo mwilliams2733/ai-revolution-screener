@@ -69,12 +69,14 @@ export function sessionsToFetch(
  */
 export const SETTLE_HOUR_NY = 18;
 
-/** The UTC instant at which `session` (yyyy-mm-dd) is settled. */
-export function settleInstant(session: string, hourNy: number = SETTLE_HOUR_NY): Date {
+/** The UTC instant of hour:minute New York wall-clock time on `session`. */
+export function nyInstant(session: string, hour: number, minute = 0): Date {
   // Guess the instant assuming UTC, read back what New York's wall clock says
   // at that instant, and correct by the difference. One correction is exact
-  // for any hour away from a DST switch, and 18:00 never is one.
-  const guess = new Date(`${session}T${String(hourNy).padStart(2, "0")}:00:00Z`);
+  // for any time away from a DST switch (02:00), and no caller asks for one.
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  const guess = new Date(`${session}T${hh}:${mm}:00Z`);
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     hourCycle: "h23",
@@ -87,6 +89,16 @@ export function settleInstant(session: string, hourNy: number = SETTLE_HOUR_NY):
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
   const wall = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
   return new Date(guess.getTime() + (guess.getTime() - wall));
+}
+
+/** The UTC instant at which `session` (yyyy-mm-dd) is settled. */
+export function settleInstant(session: string, hourNy: number = SETTLE_HOUR_NY): Date {
+  return nyInstant(session, hourNy);
+}
+
+/** The regular-session open, 09:30 New York. */
+export function marketOpenInstant(session: string): Date {
+  return nyInstant(session, 9, 30);
 }
 
 /** Sessions whose bars are final as of `now`. Order is preserved. */
