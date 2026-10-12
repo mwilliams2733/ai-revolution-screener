@@ -32,6 +32,7 @@ import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/ale
 import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { refetchTargets } from "@/lib/splits";
+import { toSessionBars, type RawAggregate } from "@/lib/ticker-history";
 import { sessionBacklog, splitBacklog } from "@/lib/refresh-backlog";
 import { cronAuthorised, cronUnauthorisedBody } from "@/lib/cron-auth";
 import { alertKey } from "@/lib/mail-ledger";
@@ -139,13 +140,7 @@ async function handle(req: Request) {
       try {
         const bars = await tickerBars(t.ticker, calendarBounds.lo, calendarBounds.hi);
         if (bars.length > 0) {
-          await replaceTickerBars(
-            t.ticker,
-            bars.map((b) => ({
-              session: new Date((b as unknown as { t: number }).t).toISOString().slice(0, 10),
-              o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw,
-            })),
-          );
+          await replaceTickerBars(t.ticker, toSessionBars(bars as unknown as RawAggregate[]));
           repairedTickers.push(t.ticker);
         }
         await markSplitsHandled(

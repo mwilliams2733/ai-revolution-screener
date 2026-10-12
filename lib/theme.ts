@@ -26,6 +26,9 @@ export type Sector =
   | "defense_space_autonomy"
   | "ai_appliers";
 
+// Delisted members were removed 2026-10-11 (INFN, JNPR, HAYN, IIVI, CYBR, CFLT,
+// IRBT): a dead symbol is not an exclusion, it is just silently absent. The OTC
+// ADRs (FANUY, OMRNY, TMRAY) stay; they are live companies with no stored bars.
 export const THEME: Readonly<Record<Sector, readonly string[]>> = {
   compute_gpu_cpu: ["NVDA", "AMD", "ARM", "AVGO", "MRVL", "INTC", "QCOM", "SMCI"],
   // The crowding-vetoed cohort. These are theme members that happen to be
@@ -40,24 +43,25 @@ export const THEME: Readonly<Record<Sector, readonly string[]>> = {
   foundry_packaging: ["TSM", "GFS", "AMKR", "UMC", "ASX"],
   optics_networking: [
     "LITE", "COHR", "AAOI", "FN", "CIEN", "ANET", "CRDO", "ALAB",
-    "MTSI", "SITM", "POET", "INFN", "EXTR", "JNPR",
+    "MTSI", "SITM", "POET", "EXTR",
   ],
   power_thermal_datacenter: [
     "VRT", "ETN", "PWR", "AGX", "MOD", "GEV", "PH", "HUBB",
     "NVT", "AAON", "CARR", "JCI", "ATKR", "EMR", "ROK",
   ],
-  materials_specialty: ["CRS", "ATI", "HAYN", "MTRN", "ENTG", "CBT", "IIVI"],
+  materials_specialty: ["CRS", "ATI", "MTRN", "ENTG", "CBT"],
   security_identity: [
-    "FTNT", "PANW", "CRWD", "ZS", "OKTA", "S", "CYBR", "TENB",
+    "FTNT", "PANW", "CRWD", "ZS", "OKTA", "S", "TENB",
     "QLYS", "RPD", "VRNS", "EVLV", "FFIV",
   ],
   data_infra_software: [
-    "PLTR", "SNOW", "MDB", "DDOG", "CFLT", "ESTC", "NTNX",
-    "PSTG", "NTAP", "DELL", "HPE", "IOT", "TOST",
+    "PLTR", "SNOW", "MDB", "DDOG", "ESTC", "NTNX",
+    // Pure Storage, renamed Everpure and re-ticked PSTG -> P on 2026-04-17.
+    "P", "NTAP", "DELL", "HPE", "IOT", "TOST",
   ],
   robotics_automation: [
     "SYM", "FANUY", "OMRNY", "TMRAY", "ROK", "TER", "ZBRA",
-    "CGNX", "NDSN", "IRBT",
+    "CGNX", "NDSN",
   ],
   defense_space_autonomy: [
     "KTOS", "AVAV", "RDW", "LHX", "LMT", "RTX", "NOC",

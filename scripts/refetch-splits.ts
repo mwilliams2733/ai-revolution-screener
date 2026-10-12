@@ -35,6 +35,7 @@ import {
   tickersWithBars,
 } from "../lib/db";
 import { pendingRefetches, refetchTargets, type Split } from "../lib/splits";
+import { toSessionBars, type RawAggregate } from "../lib/ticker-history";
 
 const arg = (n: string) => {
   const i = process.argv.indexOf(`--${n}`);
@@ -111,15 +112,7 @@ async function main(): Promise<void> {
       } else {
         rows += await replaceTickerBars(
           t.ticker,
-          bars.map((b) => ({
-            session: new Date((b as unknown as { t: number }).t).toISOString().slice(0, 10),
-            o: b.o,
-            h: b.h,
-            l: b.l,
-            c: b.c,
-            v: b.v,
-            vw: b.vw,
-          })),
+          toSessionBars(bars as unknown as RawAggregate[]),
         );
         repaired += 1;
       }
