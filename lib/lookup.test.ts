@@ -61,10 +61,9 @@ describe("isLiquid", () => {
 
 describe("whyNotRanked", () => {
   it("names a ticker the reference universe does not carry", () => {
-    expect(whyNotRanked(facts({ listed: false }), "2026-10-09", GATES)).toMatch(
-      /not in the reference universe/,
+    expect(whyNotRanked(facts({ listed: false }), "2026-10-09", GATES)).toBe(
+      "not in the screen's reference list of US common stocks and ADRs",
     );
-    expect(whyNotRanked(facts({ listed: false }), "2026-10-09", GATES)).toMatch(/common stocks and ADRs, not ETFs/);
   });
 
   it("names a missing bar for the session", () => {

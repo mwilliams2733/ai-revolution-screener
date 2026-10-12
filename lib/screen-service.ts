@@ -816,7 +816,13 @@ async function unrankedFacts(ticker: string, screen: ScreenPayload): Promise<Loo
         return b != null && Number.isFinite(b.close) && b.close > 0;
       }),
     };
-  } catch {
+  } catch (e) {
+    // The reason shown stays generic, but a loader failure must not look like
+    // missing data in the logs either. Keys are redacted, as in the route.
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(
+      `lookup facts for ${ticker}: ${message.replace(/(apiKey|token)=[^&\s]+/g, "$1=***")}`,
+    );
     return null;
   }
 }

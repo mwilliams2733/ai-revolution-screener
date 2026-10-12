@@ -59,7 +59,9 @@ const millions = (v: number) => `$${(v / 1e6).toFixed(1)}M`;
 /** The first gate a ticker fails, in the order the screen applies them. */
 export function whyNotRanked(f: LookupFacts, asOf: string, g: LookupGates): string {
   if (!f.listed) {
-    return "not in the reference universe — the screen ranks US common stocks and ADRs, not ETFs, funds or delisted names";
+    // Stated, not diagnosed: ETFs, funds and unlisted symbols all land here,
+    // while delisted names the backfill stored do not.
+    return "not in the screen's reference list of US common stocks and ADRs";
   }
   if (!isLiquid(f.median, f.now, g.minMedianDollarVolume)) {
     const floor = `$${g.minMedianDollarVolume / 1e6}M`;
