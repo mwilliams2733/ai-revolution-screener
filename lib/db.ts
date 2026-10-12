@@ -1066,3 +1066,116 @@ export async function hasLiveSnapshot(session: string): Promise<boolean> {
   `) as unknown[];
   return rows.length > 0;
 }
+
+// ---------------------------------------------------------------------------
+// Ticker renames (lib/renames.ts)
+// ---------------------------------------------------------------------------
+
+export interface StitchRecord {
+  readonly newTicker: string;
+  readonly oldTicker: string;
+  readonly changeDate: string;
+  /** "stitched" while the bars are joined; "dropped" after a failed re-stitch. */
+  readonly status: "stitched" | "dropped";
+  readonly note: string | null;
+}
+
+async function ensureTickerRenames(): Promise<void> {
+  const sql = client();
+  await sql`
+    CREATE TABLE IF NOT EXISTS ticker_renames (
+      new_ticker  TEXT PRIMARY KEY,
+      old_ticker  TEXT NOT NULL,
+      change_date DATE NOT NULL,
+      status      TEXT NOT NULL,
+      old_last    DATE,
+      old_close   DOUBLE PRECISION,
+      new_first   DATE,
+      new_open    DOUBLE PRECISION,
+      bars        INTEGER,
+      note        TEXT,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+}
+
+/** Every recorded rename, keyed by the new symbol. */
+export async function tickerRenames(): Promise<Map<string, StitchRecord>> {
+  await ensureTickerRenames();
+  const sql = client();
+  const rows = (await sql`
+    SELECT new_ticker, old_ticker, change_date::text AS change_date, status, note FROM ticker_renames
+  `) as { new_ticker: string; old_ticker: string; change_date: string; status: string; note: string | null }[];
+  return new Map(
+    rows.map((r) => [
+      r.new_ticker,
+      {
+        newTicker: r.new_ticker,
+        oldTicker: r.old_ticker,
+        changeDate: r.change_date,
+        status: r.status as StitchRecord["status"],
+        note: r.note,
+      },
+    ]),
+  );
+}
+
+/**
+ * Join the old symbol's bars under the new one, atomically.
+ *
+ * Everything stored under the new symbol before the change date is deleted
+ * first: the new symbol did not trade then, so any such rows belong to some
+ * other company that once held the symbol. Only tracked sessions are written.
+ */
+export async function applyStitch(
+  newTicker: string,
+  oldTicker: string,
+  changeDate: string,
+  rows: readonly { session: string; o?: number; h?: number; l?: number; c: number; v?: number; vw?: number }[],
+  seam: { oldLast: string; oldClose: number; newFirst: string; newOpen: number },
+): Promise<void> {
+  await ensureTickerRenames();
+  const sql = client();
+  await sql.transaction([
+    sql`DELETE FROM daily_bars WHERE ticker = ${newTicker} AND session < ${changeDate}::date`,
+    sql`
+      INSERT INTO daily_bars (session, ticker, open, high, low, close, volume, vwap)
+      SELECT t.session, ${newTicker}, t.open, t.high, t.low, t.close, t.volume, t.vwap
+      FROM UNNEST(
+        ${rows.map((b) => b.session)}::date[],
+        ${rows.map((b) => b.o ?? null)}::float8[],
+        ${rows.map((b) => b.h ?? null)}::float8[],
+        ${rows.map((b) => b.l ?? null)}::float8[],
+        ${rows.map((b) => b.c)}::float8[],
+        ${rows.map((b) => b.v ?? 0)}::float8[],
+        ${rows.map((b) => b.vw ?? null)}::float8[]
+      ) AS t(session, open, high, low, close, volume, vwap)
+      WHERE t.session < ${changeDate}::date
+        AND EXISTS (SELECT 1 FROM stored_sessions s WHERE s.session = t.session)
+    `,
+    sql`
+      INSERT INTO ticker_renames
+        (new_ticker, old_ticker, change_date, status, old_last, old_close, new_first, new_open, bars, note, updated_at)
+      VALUES (${newTicker}, ${oldTicker}, ${changeDate}::date, 'stitched', ${seam.oldLast}::date,
+              ${seam.oldClose}, ${seam.newFirst}::date, ${seam.newOpen}, ${rows.length}, NULL, now())
+      ON CONFLICT (new_ticker) DO UPDATE SET
+        old_ticker = EXCLUDED.old_ticker, change_date = EXCLUDED.change_date, status = 'stitched',
+        old_last = EXCLUDED.old_last, old_close = EXCLUDED.old_close, new_first = EXCLUDED.new_first,
+        new_open = EXCLUDED.new_open, bars = EXCLUDED.bars, note = NULL, updated_at = now()
+    `,
+  ]);
+}
+
+/**
+ * Undo a stitch whose seam no longer holds: remove the joined bars and keep the
+ * record, marked dropped with the reason, so it is never silently retried.
+ */
+export async function dropStitch(newTicker: string, changeDate: string, reason: string): Promise<void> {
+  await ensureTickerRenames();
+  const sql = client();
+  await sql.transaction([
+    sql`DELETE FROM daily_bars WHERE ticker = ${newTicker} AND session < ${changeDate}::date`,
+    sql`UPDATE ticker_renames SET status = 'dropped', note = ${reason}, updated_at = now()
+        WHERE new_ticker = ${newTicker}`,
+  ]);
+}

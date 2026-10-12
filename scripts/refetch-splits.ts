@@ -32,8 +32,10 @@ import {
   markSplitsHandled,
   replaceTickerBars,
   splitHistory,
+  tickerRenames,
   tickersWithBars,
 } from "../lib/db";
+import { defaultStitchDeps, restitchAfterRepair, type StitchDeps } from "../lib/renames-service";
 import { pendingRefetches, refetchTargets, type Split } from "../lib/splits";
 import { toSessionBars, type RawAggregate } from "../lib/ticker-history";
 
@@ -94,6 +96,9 @@ async function main(): Promise<void> {
   }
 
   const todo = targets.slice(0, LIMIT === Infinity ? undefined : LIMIT);
+  const renames = await tickerRenames();
+  let stitchDeps: Promise<StitchDeps> | null = null;
+  const getStitchDeps = () => (stitchDeps ??= defaultStitchDeps());
   const started = Date.now();
   let repaired = 0;
   let rows = 0;
@@ -114,6 +119,8 @@ async function main(): Promise<void> {
           t.ticker,
           toSessionBars(bars as unknown as RawAggregate[]),
         );
+        const restitched = await restitchAfterRepair(t.ticker, renames, getStitchDeps);
+        if (restitched && !restitched.ok) console.log(`  ${t.ticker}: stitch dropped, ${restitched.reason}`);
         repaired += 1;
       }
       await markSplitsHandled(

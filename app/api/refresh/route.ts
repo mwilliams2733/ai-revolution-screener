@@ -26,6 +26,8 @@ import {
   storedCalendarBounds,
   claimMailSend,
   releaseMailSend,
+  tickerRenames,
+  type StitchRecord,
 } from "@/lib/db";
 import { getScreen } from "@/lib/screen-service";
 import { diffTiers, formatAlert, shouldSend, suppressionReason } from "@/lib/alerts";
@@ -33,6 +35,7 @@ import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { refetchTargets } from "@/lib/splits";
 import { toSessionBars, type RawAggregate } from "@/lib/ticker-history";
+import { defaultStitchDeps, restitchAfterRepair, type StitchDeps } from "@/lib/renames-service";
 import { sessionBacklog, splitBacklog } from "@/lib/refresh-backlog";
 import { cronAuthorised, cronUnauthorisedBody } from "@/lib/cron-auth";
 import { alertKey } from "@/lib/mail-ledger";
@@ -136,11 +139,17 @@ async function handle(req: Request) {
     // interrupted run resumes exactly where it stopped.
     const pending = await splitBacklog();
     const targets = refetchTargets(pending).slice(0, MAX_REFETCH_PER_RUN);
+    // A joined rename must be re-stitched after its own bars are restated, or
+    // the old symbol's bars stay on the pre-split basis (lib/renames-service.ts).
+    const renames = targets.length > 0 ? await tickerRenames() : new Map<string, StitchRecord>();
+    let stitchDeps: Promise<StitchDeps> | null = null;
+    const getStitchDeps = () => (stitchDeps ??= defaultStitchDeps());
     for (const t of targets) {
       try {
         const bars = await tickerBars(t.ticker, calendarBounds.lo, calendarBounds.hi);
         if (bars.length > 0) {
           await replaceTickerBars(t.ticker, toSessionBars(bars as unknown as RawAggregate[]));
+          await restitchAfterRepair(t.ticker, renames, getStitchDeps);
           repairedTickers.push(t.ticker);
         }
         await markSplitsHandled(

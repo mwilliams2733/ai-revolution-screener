@@ -287,6 +287,20 @@ export async function tickerBars(
   }));
 }
 
+/**
+ * A ticker's reference events (ticker changes), newest first as Polygon sends
+ * them. One call per ticker, so only for the few hundred rename candidates.
+ */
+export async function tickerEvents(
+  ticker: string,
+  opts: FetchOptions = {},
+): Promise<{ type: string; date: string; ticker_change?: { ticker?: string } }[]> {
+  const res = await get<{
+    results?: { events?: { type: string; date: string; ticker_change?: { ticker?: string } }[] };
+  }>(`/vX/reference/tickers/${encodeURIComponent(ticker)}/events`, opts);
+  return [...(res.results?.events ?? [])];
+}
+
 /** Anchor dates for the five snapshots the screen reads. */
 export function anchorDates(
   calendar: readonly string[],
