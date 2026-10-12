@@ -1,15 +1,18 @@
 /**
  * GET /api/lookup/{ticker} -> the full ruleset applied to any ticker.
  *
- * Works for names outside the theme. When a ticker does not appear, the
- * response says which gate it failed rather than simply reporting "not found".
+ * Answers from the screen itself: a ranked name returns the screen's own row
+ * (same RS and tier as the table), and an unranked one says which of the
+ * screen's gates it failed rather than simply reporting "not found".
  */
 
 import { NextResponse } from "next/server";
 import { lookupTicker } from "@/lib/screen-service";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// The lookup reads the screen's payload, so a cold instance computes the whole
+// screen first -- the same budget as /api/screen.
+export const maxDuration = 300;
 
 export async function GET(_req: Request, ctx: { params: Promise<{ ticker: string }> }) {
   const { ticker: raw } = await ctx.params;

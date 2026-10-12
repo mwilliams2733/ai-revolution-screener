@@ -42,7 +42,7 @@ const isStringArray = (v: unknown): v is string[] =>
 
 const slug = (s: string) => `g-${s.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
-function tierClass(r: MarketRow): string {
+export function tierClass(r: MarketRow): string {
   if (r.vsMa < 0) return "t-below";
   if (r.tier === "Strong Buy") return "t-strong";
   if (r.tier === "Buy") return "t-buy";
@@ -54,7 +54,7 @@ function stageLabel(s: MarketRow["stage"]): string {
   return s === "Transitional" ? "T" : String(s);
 }
 
-function notes(r: MarketRow): string[] {
+export function notes(r: MarketRow): string[] {
   const out = [...r.heldDown];
   if (r.bookCapped) out.push("Buy in the AI book — outside its top 10");
   if (r.tier === "Strong Buy" && r.gate === "unverified") out.push("Fundamentals unverified");

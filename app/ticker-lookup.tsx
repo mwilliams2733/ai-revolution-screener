@@ -2,34 +2,12 @@
 
 import { useState } from "react";
 import { num, pct, signClass } from "@/lib/format";
-
-interface Row {
-  ticker: string;
-  name: string;
-  sector: string;
-  price: number;
-  dollarVolume: number;
-  r3m: number;
-  r12m: number;
-  vsMa: number;
-  rsPct: number | null;
-  tier: string | null;
-}
-
-interface Result {
-  ticker: string;
-  found: boolean;
-  row: Row | null;
-  inTheme: boolean;
-  reason: string | null;
-  universeSize: number;
-  asOf: string;
-}
-
+import type { LookupResult } from "@/lib/lookup";
+import { notes, tierClass } from "./market-groups";
 
 export default function TickerLookup() {
   const [value, setValue] = useState("");
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<LookupResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +22,7 @@ export default function TickerLookup() {
       const res = await fetch(`/api/lookup/${encodeURIComponent(t)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setResult(json as Result);
+      setResult(json as LookupResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lookup failed");
     } finally {
@@ -79,8 +57,7 @@ export default function TickerLookup() {
 
       {result && !r && (
         <p className="lookup-note">
-          <strong className="num">{result.ticker}</strong> is not on the ranked screen.{" "}
-          {result.reason ?? "It did not clear the liquidity gate."}
+          <strong className="num">{result.ticker}</strong> is not on the ranked screen: {result.reason}
         </p>
       )}
 
@@ -89,9 +66,8 @@ export default function TickerLookup() {
           <div className="lookup-head">
             <span className="ticker">{r.ticker}</span>
             <span className="coname">{r.name}</span>
-            <span className={`badge-name ${r.vsMa < 0 ? "t-below" : "t-strong"}`}>
-              {r.tier ?? "--"}
-            </span>
+            {r.badge && <span className="mg-badge">{r.badge}</span>}
+            <span className={`badge-name ${tierClass(r)}`}>{r.tier ?? "--"}</span>
           </div>
 
           <div className="figs">
@@ -118,14 +94,12 @@ export default function TickerLookup() {
             </span>
           </div>
 
-          {/* A themed name is tradable; anything else is ranked but held out,
-              and the reason travels with it rather than being dropped. */}
-          {!result.inTheme && (
-            <p className="lookup-note">
-              Ranked against the full universe, but outside the tradable set —{" "}
-              {result.reason ?? "not in the AI CapEx-taker theme"}.
+          <p className="lookup-note">{result.placement}.</p>
+          {notes(r).map((n) => (
+            <p key={n} className="lookup-note">
+              {n}
             </p>
-          )}
+          ))}
         </div>
       )}
     </section>

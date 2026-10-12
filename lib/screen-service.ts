@@ -34,7 +34,9 @@ import {
   medianDollarVolume,
   lastRefresh,
   loadStoredFundamentals,
+  tickerLookupFacts,
 } from "./db";
+import { describeLookup, isLiquid, type LookupFacts, type LookupResult } from "./lookup";
 import { MA_WINDOW, applyTrueMa, trueMaCount, type MaSource } from "./moving-average";
 import { assessStaleness, type StalenessReport } from "./staleness";
 import type { RefreshRun } from "./refresh-stamp";
@@ -553,10 +555,7 @@ async function computeScreen(): Promise<ScreenPayload> {
 
   const liquid = new Map<string, string>();
   for (const [ticker, name] of names) {
-    const med = medians.get(ticker);
-    const today = snapshots.now?.get(ticker);
-    const dv = today ? today.close * today.volume : 0;
-    if (med != null ? med >= MIN_MEDIAN_DOLLAR_VOLUME : dv >= MIN_MEDIAN_DOLLAR_VOLUME) {
+    if (isLiquid(medians.get(ticker), snapshots.now?.get(ticker), MIN_MEDIAN_DOLLAR_VOLUME)) {
       liquid.set(ticker, name);
     }
   }
@@ -779,110 +778,45 @@ async function computeScreen(): Promise<ScreenPayload> {
 // Ad-hoc ticker lookup
 // ---------------------------------------------------------------------------
 
-export interface LookupResult {
-  readonly ticker: string;
-  readonly found: boolean;
-  /** The full scored row when the name cleared the liquidity gate. */
-  readonly row: ScreenRow | null;
-  /** Present in the theme universe? */
-  readonly inTheme: boolean;
-  /** Why it is not on the screen, when it is not. */
-  readonly reason: string | null;
-  readonly universeSize: number;
-  /** How far behind the latest trading session this data is. */
-  readonly staleness: StalenessReport;
-  readonly asOf: string;
-}
+export type { LookupResult };
 
 /**
- * Apply the full ruleset to any ticker, themed or not.
+ * Apply the full ruleset to any ticker, themed or not, by reading the screen.
  *
- * The screen already ranks every liquid name before narrowing to the theme, so
- * an arbitrary ticker's percentile is a lookup rather than a recomputation, and
- * it carries the same universe-wide meaning as everything on the table.
- *
- * When a name is absent, say WHY. "Not found" is useless; "below the $10M
- * dollar-volume floor" is actionable, and distinguishes a deliberate exclusion
- * from a data gap.
+ * A ranked name returns the screen's own row, so its RS and tier are the ones
+ * on the table. An unranked name is explained with the screen's real gates
+ * from one small query, never by re-ranking the market (lib/lookup.ts).
  */
 export async function lookupTicker(rawTicker: string): Promise<LookupResult> {
   const ticker = rawTicker.trim().toUpperCase();
-  const screen = await getScreenRanked();
-  const row = screen.ranked.find((r) => r.ticker === ticker) ?? null;
-  const theme = themeUniverse({ includeVetoed: true });
-
-  let reason: string | null = null;
-  if (!row) {
-    const bar = screen.nowBars.get(ticker);
-    if (!bar) {
-      reason = `no bar for ${screen.asOf} — not a listed US common stock, or it did not trade`;
-    } else if (bar.close < DEFAULT_PARAMS.minPrice) {
-      reason = `price $${bar.close.toFixed(2)} is below the $${DEFAULT_PARAMS.minPrice} floor`;
-    } else {
-      const dv = bar.volume * (bar.vwap || bar.close);
-      if (dv < DEFAULT_PARAMS.minDollarVolume) {
-        reason = `dollar volume $${(dv / 1e6).toFixed(1)}M is below the $${
-          DEFAULT_PARAMS.minDollarVolume / 1e6
-        }M floor`;
-      } else {
-        reason = "missing one or more return anchors — likely listed under 12 months";
-      }
-    }
-  } else if (!theme.has(ticker)) {
-    reason = exclusionReason(ticker) ?? "not in the AI CapEx-taker theme";
-  } else {
-    reason = exclusionReason(ticker);
-  }
-
-  return {
-    ticker,
-    found: row !== null,
-    row,
-    inTheme: theme.has(ticker) && exclusionReason(ticker) === null,
-    reason,
-    universeSize: screen.universeSize,
-    asOf: screen.asOf,
-    staleness: screen.staleness,
+  const screen = await getScreen();
+  const gates = {
+    minPrice: SCREEN_PARAMS.minPrice,
+    minMedianDollarVolume: MIN_MEDIAN_DOLLAR_VOLUME,
   };
+  if (screen.market.some((r) => r.ticker === ticker)) {
+    return describeLookup(ticker, screen, null, gates);
+  }
+  return describeLookup(ticker, screen, await unrankedFacts(ticker, screen), gates);
 }
 
-/** Shared ranking pass used by both the screen and the lookup. */
-async function getScreenRanked(): Promise<{
-  ranked: readonly ScreenRow[];
-  nowBars: BarsByTicker;
-  universeSize: number;
-  asOf: string;
-  staleness: StalenessReport;
-}> {
-  const { calendar } = await resolveCalendar();
-  const dates = anchorDates(calendar, DEFAULT_PARAMS.lookbacks);
-  // Throwaway: this path returns no meta.warnings, so a failed reference fetch
-  // has nowhere to be reported. The staleness fallback below still refuses to
-  // claim freshness, which is the part that matters.
-  const refWarnings: string[] = [];
-  const reference = await referenceCalendar(refWarnings);
-  const snapshots: Record<string, BarsByTicker> = {};
-
-  for (const label of ["now", ...ANCHOR_LABELS] as const) {
-    const { bars } = await loadOne(dates[label] as string);
-    snapshots[label] = bars;
+/** Facts for explaining an absence; null when they cannot be read. */
+async function unrankedFacts(ticker: string, screen: ScreenPayload): Promise<LookupFacts | null> {
+  if (!dbConfigured()) return null;
+  try {
+    const { names } = await resolveReference();
+    const sessions = Object.values(screen.anchors).map((a) => a.date);
+    const { bars, median } = await tickerLookupFacts(ticker, sessions, LIQUIDITY_WINDOW);
+    return {
+      listed: names.has(ticker),
+      now: bars.get(screen.asOf) ?? null,
+      median,
+      anchors: ANCHOR_LABELS.filter((l) => {
+        const b = bars.get(screen.anchors[l]?.date ?? "");
+        return b != null && Number.isFinite(b.close) && b.close > 0;
+      }),
+    };
+  } catch {
+    return null;
   }
-  const { names } = await resolveReference();
-  const { ranked, universeSize } = runScreen({
-    snapshots: snapshots as unknown as Snapshots,
-    names,
-  });
-  return {
-    ranked,
-    nowBars: snapshots.now,
-    universeSize,
-    asOf: dates.now as string,
-    staleness: reference
-      ? assessStaleness(dates.now as string, reference)
-      : {
-          freshness: "very-stale" as const,
-          sessionsBehind: Number.POSITIVE_INFINITY,
-          label: "Freshness could not be checked",
-        },
-  };
 }

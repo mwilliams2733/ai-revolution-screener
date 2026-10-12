@@ -172,6 +172,39 @@ export async function medianDollarVolume(sessions: number): Promise<Map<string, 
 }
 
 /**
+ * One ticker's bars on the given sessions, plus its median dollar volume over
+ * the last `window` stored sessions -- the facts the lookup needs to say why a
+ * name is not ranked, without loading the market.
+ */
+export async function tickerLookupFacts(
+  ticker: string,
+  sessions: readonly string[],
+  window: number,
+): Promise<{ bars: Map<string, { close: number; volume: number }>; median: number | null }> {
+  const sql = client();
+  const [bars, med] = await Promise.all([
+    sql`
+      SELECT session::text AS session, close, volume FROM daily_bars
+      WHERE ticker = ${ticker} AND session = ANY(${[...sessions]}::date[])
+    ` as unknown as Promise<{ session: string; close: number; volume: number | null }[]>,
+    sql`
+      WITH recent AS (
+        SELECT session FROM stored_sessions ORDER BY session DESC LIMIT ${window}
+      )
+      SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY close * volume) AS med
+      FROM daily_bars
+      WHERE ticker = ${ticker} AND session >= (SELECT min(session) FROM recent)
+    ` as unknown as Promise<{ med: number | null }[]>,
+  ]);
+  return {
+    bars: new Map(
+      bars.map((b) => [b.session.slice(0, 10), { close: Number(b.close), volume: Number(b.volume ?? 0) }]),
+    ),
+    median: med[0]?.med == null ? null : Number(med[0].med),
+  };
+}
+
+/**
  * SIC classification for every ticker that has one, as ticker -> labels.
  *
  * Only rows with a non-empty code are returned. A filer with no SIC and a
