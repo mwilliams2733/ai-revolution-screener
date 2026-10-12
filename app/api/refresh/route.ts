@@ -35,7 +35,13 @@ import { readMailConfig, sendMail } from "@/lib/mailer";
 import { classifySession } from "@/lib/session-ledger";
 import { refetchTargets } from "@/lib/splits";
 import { toSessionBars, type RawAggregate } from "@/lib/ticker-history";
-import { defaultStitchDeps, restitchAfterRepair, type StitchDeps } from "@/lib/renames-service";
+import {
+  defaultNightlyDeps,
+  defaultStitchDeps,
+  nightlyStitch,
+  restitchAfterRepair,
+  type StitchDeps,
+} from "@/lib/renames-service";
 import { sessionBacklog, splitBacklog } from "@/lib/refresh-backlog";
 import { cronAuthorised, cronUnauthorisedBody } from "@/lib/cron-auth";
 import { alertKey } from "@/lib/mail-ledger";
@@ -74,6 +80,13 @@ const MAX_REFETCH_PER_RUN = 25;
  * cursor.
  */
 const FUNDAMENTALS_BUDGET_MS = 60 * 1000;
+
+/**
+ * Nightly rename check. 4-43 new symbols a session (measured over 30 sessions
+ * to 2026-10-08), one events call each plus two bar fetches per rename, so 60
+ * covers a heavy night; 30s keeps the run inside its measured headroom.
+ */
+const RENAME_LIMITS = { budgetMs: 30 * 1000, max: 60 };
 
 async function handle(req: Request) {
   if (!cronAuthorised(req)) {
@@ -161,6 +174,17 @@ async function handle(req: Request) {
         // Deliberately NOT marked handled: an error must leave the work
         // outstanding rather than record a repair that never happened.
       }
+    }
+
+    // Join renamed tickers' history (MPW -> MPT) before the screen is built, so
+    // a rename stitched tonight ranks tonight. Only new symbols are asked
+    // about, each recorded in rename_checks. A failure here costs one night of
+    // stitching, never the refresh.
+    let renameCheck: Record<string, unknown>;
+    try {
+      renameCheck = { ...(await nightlyStitch(defaultNightlyDeps(), RENAME_LIMITS)) };
+    } catch (e) {
+      renameCheck = { error: e instanceof Error ? e.message : String(e) };
     }
 
     // Snapshot the screen so tier changes are diffable tomorrow.
@@ -290,6 +314,7 @@ async function handle(req: Request) {
       fundamentals,
       alert,
       splitsRepaired: repairedTickers,
+      renames: renameCheck,
       // Both backlogs, so a run that is quietly falling behind is visible in
       // the response rather than only in the data.
       remaining: Math.max(0, needing.length - stored.length),

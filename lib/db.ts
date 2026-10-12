@@ -1179,3 +1179,80 @@ export async function dropStitch(newTicker: string, changeDate: string, reason: 
         WHERE new_ticker = ${newTicker}`,
   ]);
 }
+
+async function ensureRenameChecks(): Promise<void> {
+  const sql = client();
+  await sql`
+    CREATE TABLE IF NOT EXISTS rename_checks (
+      ticker       TEXT PRIMARY KEY,
+      outcome      TEXT NOT NULL,
+      attempts     INTEGER NOT NULL,
+      last_checked TIMESTAMPTZ NOT NULL,
+      note         TEXT
+    )
+  `;
+}
+
+/** The nightly rename check's ledger, keyed by ticker. */
+export async function renameChecks(): Promise<
+  Map<string, { outcome: "none" | "refused" | "stitched"; attempts: number; lastChecked: string }>
+> {
+  await ensureRenameChecks();
+  const sql = client();
+  const rows = (await sql`
+    SELECT ticker, outcome, attempts, last_checked FROM rename_checks
+  `) as { ticker: string; outcome: string; attempts: number; last_checked: string | Date }[];
+  return new Map(
+    rows.map((r) => [
+      r.ticker,
+      {
+        outcome: r.outcome as "none" | "refused" | "stitched",
+        attempts: Number(r.attempts),
+        lastChecked: new Date(r.last_checked).toISOString(),
+      },
+    ]),
+  );
+}
+
+/** Record one check, counting attempts. */
+export async function recordRenameCheck(
+  ticker: string,
+  outcome: "none" | "refused" | "stitched",
+  note: string | null,
+): Promise<void> {
+  await ensureRenameChecks();
+  const sql = client();
+  await sql`
+    INSERT INTO rename_checks (ticker, outcome, attempts, last_checked, note)
+    VALUES (${ticker}, ${outcome}, 1, now(), ${note})
+    ON CONFLICT (ticker) DO UPDATE SET
+      outcome = EXCLUDED.outcome, attempts = rename_checks.attempts + 1,
+      last_checked = now(), note = EXCLUDED.note
+  `;
+}
+
+/**
+ * The last `sessions` stored sessions, and every ticker whose FIRST stored bar
+ * falls among them -- the new symbols a rename check considers.
+ */
+export async function recentFirstSeen(
+  sessions: number,
+): Promise<{ recent: string[]; firstSeen: Map<string, string> }> {
+  const sql = client();
+  const recent = (
+    (await sql`SELECT session::text AS session FROM stored_sessions ORDER BY session DESC LIMIT ${sessions}`) as {
+      session: string;
+    }[]
+  ).map((r) => r.session);
+  if (recent.length === 0) return { recent, firstSeen: new Map() };
+  const rows = (await sql`
+    SELECT ticker, min(session)::text AS first FROM daily_bars
+    WHERE session >= ${recent[recent.length - 1]}::date
+      AND ticker IN (SELECT ticker FROM daily_bars WHERE session = ${recent[0]}::date)
+    GROUP BY ticker
+    HAVING NOT EXISTS (
+      SELECT 1 FROM daily_bars o WHERE o.ticker = daily_bars.ticker AND o.session < ${recent[recent.length - 1]}::date
+    )
+  `) as { ticker: string; first: string }[];
+  return { recent, firstSeen: new Map(rows.map((r) => [r.ticker, r.first])) };
+}

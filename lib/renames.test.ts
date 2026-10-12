@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRename, planStitch, type TickerEvent } from "./renames";
+import { parseRename, planStitch, renameCandidates, type TickerEvent } from "./renames";
 import type { SessionBar } from "./ticker-history";
 
 const change = (ticker: string, date: string): TickerEvent => ({
@@ -85,5 +85,42 @@ describe("planStitch", () => {
     // A reused symbol can carry another company's bars before the change.
     const plan = planStitch({ ...base, newBars: [bar("2026-01-29", 50), ...base.newBars] });
     expect(plan.ok && plan.seam.newFirst).toBe("2026-02-02");
+  });
+});
+
+describe("renameCandidates", () => {
+  const NOW = new Date("2026-10-09T12:00:00Z");
+  const recent = ["2026-10-06", "2026-10-07", "2026-10-08"];
+  const firstSeen = new Map([
+    ["NEW1", "2026-10-08"],
+    ["NEW2", "2026-10-06"],
+    ["OLDY", "2026-09-01"],
+    ["DONE", "2026-10-07"],
+  ]);
+  const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600e3).toISOString();
+
+  it("takes symbols first seen in the recent window that nothing has handled", () => {
+    expect(renameCandidates({ firstSeen, recent, stitched: new Set(["DONE"]), checks: new Map(), now: NOW }))
+      .toEqual(["NEW1", "NEW2"]);
+  });
+
+  it("does not depend on the window being contiguous with the last run", () => {
+    // A missed night: NEW2 first traded three sessions ago and was never checked.
+    const out = renameCandidates({ firstSeen, recent, stitched: new Set(), checks: new Map(), now: NOW });
+    expect(out).toContain("NEW2");
+  });
+
+  it("retries a 'none' result on later nights, up to three attempts", () => {
+    const base = { firstSeen, recent, stitched: new Set(["DONE", "NEW2"]), now: NOW };
+    const check = (attempts: number, h: number) =>
+      new Map([["NEW1", { outcome: "none" as const, attempts, lastChecked: hoursAgo(h) }]]);
+    expect(renameCandidates({ ...base, checks: check(1, 24) })).toEqual(["NEW1"]);
+    expect(renameCandidates({ ...base, checks: check(1, 2) })).toEqual([]); // already checked tonight
+    expect(renameCandidates({ ...base, checks: check(3, 24) })).toEqual([]);
+  });
+
+  it("never retries a refused stitch", () => {
+    const checks = new Map([["NEW1", { outcome: "refused" as const, attempts: 1, lastChecked: hoursAgo(48) }]]);
+    expect(renameCandidates({ firstSeen, recent, stitched: new Set(["DONE", "NEW2"]), checks, now: NOW })).toEqual([]);
   });
 });

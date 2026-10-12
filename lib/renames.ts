@@ -106,3 +106,50 @@ export function planStitch(input: {
   }
   return { ok: true, rows, seam };
 }
+
+/** The nightly check's ledger entry for one new symbol. */
+export interface RenameCheck {
+  /** "none": no rename event yet; "refused": a seam check failed; final. */
+  readonly outcome: "none" | "refused" | "stitched";
+  readonly attempts: number;
+  /** ISO timestamp. */
+  readonly lastChecked: string;
+}
+
+/** Nights a symbol with no rename event is re-asked; Polygon can publish late. */
+export const MAX_RENAME_ATTEMPTS = 3;
+/** Minimum gap between attempts, so one night never asks twice. */
+const RECHECK_AFTER_MS = 20 * 3600e3;
+
+/**
+ * New symbols the nightly refresh should ask Polygon about, newest first.
+ *
+ * Judged per symbol against the ledger, never from "what is new since the last
+ * run": a missed night leaves its new symbols inside the window, unchecked, and
+ * they are picked up the next time.
+ */
+export function renameCandidates(input: {
+  /** ticker -> first stored session, for tickers first seen recently. */
+  readonly firstSeen: ReadonlyMap<string, string>;
+  /** The recent stored sessions forming the window. */
+  readonly recent: readonly string[];
+  /** New symbols already in ticker_renames, stitched or dropped. */
+  readonly stitched: ReadonlySet<string>;
+  readonly checks: ReadonlyMap<string, RenameCheck>;
+  readonly now: Date;
+}): string[] {
+  const window = new Set(input.recent);
+  const out: [string, string][] = [];
+  for (const [ticker, first] of input.firstSeen) {
+    if (!window.has(first) || input.stitched.has(ticker)) continue;
+    const c = input.checks.get(ticker);
+    if (c) {
+      if (c.outcome !== "none" || c.attempts >= MAX_RENAME_ATTEMPTS) continue;
+      if (input.now.getTime() - Date.parse(c.lastChecked) < RECHECK_AFTER_MS) continue;
+    }
+    out.push([ticker, first]);
+  }
+  return out
+    .sort((a, b) => (a[1] !== b[1] ? (a[1] < b[1] ? 1 : -1) : a[0] < b[0] ? -1 : 1))
+    .map(([t]) => t);
+}
