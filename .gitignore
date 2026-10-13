@@ -48,3 +48,9 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# python bytecode (research/)
+__pycache__/
+
+# semgrep guardian plugin state
+/.semgrep/
